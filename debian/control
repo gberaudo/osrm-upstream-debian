@@ -1,0 +1,30 @@
+Source: osrm
+Section: unknown
+Priority: extra
+Maintainer: Frederic Junod <frederic.junod@camptocamp.com>
+Build-Depends: debhelper (>= 8.0.0), cmake,
+               libboost-dev,
+               libboost-filesystem-dev,
+               libboost-iostreams-dev,
+               libboost-program-options-dev,
+               libboost-regex-dev,
+               libboost-system-dev,
+               libboost-thread-dev,
+               libluabind-dev,
+               libxml2-dev,
+               libstxxl-dev,
+               libosmpbf-dev,
+               libprotobuf-dev,
+               libbz2-dev
+Standards-Version: 3.9.3
+Homepage: http://project-osrm.org
+
+Package: osrm
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Routing engine for OpenStreetMap data
+ The Open Source Routing Machine (OSRM) is a C++ implementation of a
+ high-performance routing engine for shortest paths in road networks.
+ .
+ OSRM is able to compute and output a shortest path between any origin
+ and destination within a few miliseconds.
