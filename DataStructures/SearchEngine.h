@@ -30,7 +30,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "SearchEngineData.h"
 #include "../RoutingAlgorithms/AlternativePathRouting.h"
+#include "../RoutingAlgorithms/ManyToManyRouting.h"
 #include "../RoutingAlgorithms/ShortestPathRouting.h"
+
+#include <type_traits>
 
 template <class DataFacadeT> class SearchEngine
 {
@@ -41,11 +44,14 @@ template <class DataFacadeT> class SearchEngine
   public:
     ShortestPathRouting<DataFacadeT> shortest_path;
     AlternativeRouting<DataFacadeT> alternative_path;
+    ManyToManyRouting<DataFacadeT> distance_table;
 
     explicit SearchEngine(DataFacadeT *facade)
         : facade(facade), shortest_path(facade, engine_working_data),
-          alternative_path(facade, engine_working_data)
+          alternative_path(facade, engine_working_data), distance_table(facade, engine_working_data)
     {
+        static_assert(!std::is_pointer<DataFacadeT>(), "don't instantiate with ptr type");
+        static_assert(std::is_object<DataFacadeT>(), "don't instantiate with void, function, or reference");
     }
 
     ~SearchEngine() {}
