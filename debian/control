@@ -1,5 +1,5 @@
 Source: osrm
-Section: unknown
+Section: sig/unknown
 Priority: extra
 Maintainer: Frederic Junod <frederic.junod@camptocamp.com>
 Build-Depends: debhelper (>= 8.0.0), cmake,
