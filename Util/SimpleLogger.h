@@ -31,7 +31,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <boost/assert.hpp>
 
 #include <cstdio>
+
+#ifdef _MSC_VER
+#include <io.h>
+#define isatty _isatty
+#define fileno _fileno
+#else
 #include <unistd.h>
+#endif
 
 #include <ostream>
 #include <iostream>
@@ -120,7 +127,7 @@ class SimpleLogger
         std::lock_guard<std::mutex> lock(get_mutex());
         if (!LogPolicy::GetInstance().IsMute())
         {
-            const bool is_terminal = isatty(fileno(stdout));
+            const bool is_terminal = ( 0 != isatty(fileno(stdout)) ? true : false);
             switch (level)
             {
             case logINFO:

@@ -30,37 +30,40 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Extractor/ScriptingEnvironment.h"
 #include "Extractor/PBFParser.h"
 #include "Extractor/XMLParser.h"
+#include "Util/FingerPrint.h"
 #include "Util/GitDescription.h"
 #include "Util/MachineInfo.h"
-#include "Util/OpenMPWrapper.h"
 #include "Util/OSRMException.h"
 #include "Util/ProgramOptions.h"
 #include "Util/SimpleLogger.h"
 #include "Util/StringUtil.h"
-#include "Util/UUID.h"
+#include "Util/TimingUtil.h"
 #include "typedefs.h"
 
 #include <cstdlib>
 
+#include <thread>
 #include <chrono>
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <unordered_map>
 
+#include <tbb/task_scheduler_init.h>
+
 ExtractorCallbacks *extractor_callbacks;
-UUID uuid;
+FingerPrint fingerprint;
 
 int main(int argc, char *argv[])
 {
     try
     {
         LogPolicy::GetInstance().Unmute();
-        std::chrono::time_point<std::chrono::steady_clock> startup_time =
-            std::chrono::steady_clock::now();
+
+        TIMER_START(extracting);
 
         boost::filesystem::path config_file_path, input_path, profile_path;
-        int requested_num_threads;
+        unsigned requested_num_threads;
         bool use_elevation = false;
 
         // declare a group of options that will be allowed only on command line
@@ -74,13 +77,15 @@ int main(int argc, char *argv[])
 
         // declare a group of options that will be allowed both on command line and in config file
         boost::program_options::options_description config_options("Configuration");
-        config_options.add_options()(
-            "profile,p", boost::program_options::value<boost::filesystem::path>(
-                &profile_path)->default_value("profile.lua"), "Path to LUA routing profile")(
+        config_options.add_options()("profile,p",
+                                     boost::program_options::value<boost::filesystem::path>(
+                                         &profile_path)->default_value("profile.lua"),
+                                     "Path to LUA routing profile")(
             "elevation,e", boost::program_options::value<bool>(&use_elevation)->default_value(true),
                 "Retrieve node elevations")(
-            "threads,t", boost::program_options::value<int>(&requested_num_threads)->default_value(8),
-                "Number of threads to use");
+            "threads,t",
+            boost::program_options::value<unsigned int>(&requested_num_threads)->default_value(tbb::task_scheduler_init::default_num_threads()),
+            "Number of threads to use");
 
         // hidden options, will be allowed both on command line and in config file, but will not be
         // shown to the user
@@ -164,18 +169,23 @@ int main(int argc, char *argv[])
             return 1;
         }
 
-        int real_num_threads = std::min(omp_get_num_procs(), requested_num_threads);
+        const unsigned recommended_num_threads = tbb::task_scheduler_init::default_num_threads();
 
         SimpleLogger().Write() << "Input file: " << input_path.filename().string();
         SimpleLogger().Write() << "Profile: " << profile_path.filename().string();
-        SimpleLogger().Write() << "Threads: " << real_num_threads << " (requested "
-                               << requested_num_threads << ")";
+        SimpleLogger().Write() << "Threads: " << requested_num_threads;
+        if (recommended_num_threads != requested_num_threads)
+        {
+            SimpleLogger().Write(logWARNING) << "The recommended number of threads is "
+                                             << recommended_num_threads
+                                             << "! This setting may have performance side-effects.";
+        }
         SimpleLogger().Write() << "Using elevation: " << use_elevation;
 
-        /*** Setup Scripting Environment ***/
-        ScriptingEnvironment scripting_environment(profile_path.c_str());
+        tbb::task_scheduler_init init(requested_num_threads);
 
-        omp_set_num_threads(real_num_threads);
+        /*** Setup Scripting Environment ***/
+        ScriptingEnvironment scripting_environment(profile_path.string().c_str());
 
         bool file_has_pbf_format(false);
         std::string output_file_name = input_path.string();
@@ -187,6 +197,8 @@ int main(int argc, char *argv[])
             if (pos != std::string::npos)
             {
                 file_has_pbf_format = true;
+            } else {
+                pos = output_file_name.find(".osm.xml");
             }
         }
         if (pos == std::string::npos)
@@ -225,11 +237,15 @@ int main(int argc, char *argv[])
         BaseParser *parser;
         if (file_has_pbf_format)
         {
-            parser = new PBFParser(input_path.c_str(), extractor_callbacks, scripting_environment, use_elevation);
+            parser = new PBFParser(input_path.string().c_str(),
+                                   extractor_callbacks,
+                                   scripting_environment,
+                                   use_elevation,
+                                   requested_num_threads);
         }
         else
         {
-            parser = new XMLParser(input_path.c_str(), extractor_callbacks, scripting_environment, use_elevation);
+            parser = new XMLParser(input_path.string().c_str(), extractor_callbacks, scripting_environment, use_elevation);
         }
 
         if (!parser->ReadHeader())
@@ -237,16 +253,14 @@ int main(int argc, char *argv[])
             throw OSRMException("Parser not initialized!");
         }
         SimpleLogger().Write() << "Parsing in progress..";
-        std::chrono::time_point<std::chrono::steady_clock> parsing_start_time =
-            std::chrono::steady_clock::now();
+        TIMER_START(parsing);
 
         parser->Parse();
         delete parser;
         delete extractor_callbacks;
 
-        std::chrono::duration<double> parsing_duration =
-            std::chrono::steady_clock::now() - parsing_start_time;
-        SimpleLogger().Write() << "Parsing finished after " << parsing_duration.count()
+        TIMER_STOP(parsing);
+        SimpleLogger().Write() << "Parsing finished after " << TIMER_SEC(parsing)
                                << " seconds";
 
         if (extraction_containers.all_edges_list.empty())
@@ -257,21 +271,20 @@ int main(int argc, char *argv[])
 
         extraction_containers.PrepareData(output_file_name, restriction_fileName);
 
-        std::chrono::duration<double> extraction_duration =
-            std::chrono::steady_clock::now() - startup_time;
-        SimpleLogger().Write() << "extraction finished after " << extraction_duration.count()
+        TIMER_STOP(extracting);
+        SimpleLogger().Write() << "extraction finished after " << TIMER_SEC(extracting)
                                << "s";
         SimpleLogger().Write() << "To prepare the data for routing, run: "
                                << "./osrm-prepare " << output_file_name << std::endl;
     }
-    catch (boost::program_options::too_many_positional_options_error &e)
+    catch (boost::program_options::too_many_positional_options_error &)
     {
         SimpleLogger().Write(logWARNING) << "Only one input file can be specified";
         return 1;
     }
     catch (std::exception &e)
     {
-        SimpleLogger().Write(logWARNING) << "Exception occured: " << e.what();
+        SimpleLogger().Write(logWARNING) << e.what();
         return 1;
     }
     return 0;

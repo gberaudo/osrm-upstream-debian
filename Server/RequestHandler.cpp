@@ -66,6 +66,7 @@ void RequestHandler::handle_request(const http::Request &req, http::Reply &reply
         ltime = time(nullptr);
         Tm = localtime(&ltime);
 
+        // log timestamp
         SimpleLogger().Write() << (Tm->tm_mday < 10 ? "0" : "") << Tm->tm_mday << "-"
                                << (Tm->tm_mon + 1 < 10 ? "0" : "") << (Tm->tm_mon + 1) << "-"
                                << 1900 + Tm->tm_year << " " << (Tm->tm_hour < 10 ? "0" : "")
@@ -78,60 +79,55 @@ void RequestHandler::handle_request(const http::Request &req, http::Reply &reply
         RouteParameters route_parameters;
         APIGrammarParser api_parser(&route_parameters);
 
-        auto it = request.begin();
-        const bool result = boost::spirit::qi::parse(it, request.end(), api_parser);
+        auto iter = request.begin();
+        const bool result = boost::spirit::qi::parse(iter, request.end(), api_parser);
 
-        if (!result || (it != request.end()))
+        // check if the was an error with the request
+        if (!result || (iter != request.end()))
         {
             reply = http::Reply::StockReply(http::Reply::badRequest);
             reply.content.clear();
-            const int position = std::distance(request.begin(), it);
+            const unsigned position = static_cast<unsigned>(std::distance(request.begin(), iter));
             JSON::Object json_result;
             json_result.values["status"] = 400;
-            std::string tmp_position_string = IntToString(position);
-            std::string message = ("Query string malformed close to position " + IntToString(position));
+            std::string message = "Query string malformed close to position ";
+            message += UintToString(position);
             json_result.values["status_message"] = message;
             JSON::render(reply.content, json_result);
+            return;
+        }
+
+        // parsing done, lets call the right plugin to handle the request
+        BOOST_ASSERT_MSG(routing_machine != nullptr, "pointer not init'ed");
+
+        if (!route_parameters.jsonp_parameter.empty())
+        { // prepend response with jsonp parameter
+            const std::string json_p = (route_parameters.jsonp_parameter + "(");
+            reply.content.insert(reply.content.end(), json_p.begin(), json_p.end());
+        }
+        routing_machine->RunQuery(route_parameters, reply);
+        if (!route_parameters.jsonp_parameter.empty())
+        { // append brace to jsonp response
+            reply.content.push_back(')');
+        }
+
+        // set headers
+        reply.headers.emplace_back("Content-Length",
+                                   UintToString(static_cast<unsigned>(reply.content.size())));
+        if ("gpx" == route_parameters.output_format)
+        { // gpx file
+            reply.headers.emplace_back("Content-Type", "application/gpx+xml; charset=UTF-8");
+            reply.headers.emplace_back("Content-Disposition", "attachment; filename=\"route.gpx\"");
+        }
+        else if (route_parameters.jsonp_parameter.empty())
+        { // json file
+            reply.headers.emplace_back("Content-Type", "application/json; charset=UTF-8");
+            reply.headers.emplace_back("Content-Disposition", "inline; filename=\"response.json\"");
         }
         else
-        {
-            // parsing done, lets call the right plugin to handle the request
-            BOOST_ASSERT_MSG(routing_machine != nullptr, "pointer not init'ed");
-
-            if (!route_parameters.jsonp_parameter.empty())
-            {
-                const std::string json_p = (route_parameters.jsonp_parameter + "(");
-                reply.content.insert(reply.content.end(), json_p.begin(), json_p.end());
-            }
-            routing_machine->RunQuery(route_parameters, reply);
-
-            // set headers, still ugly and should be reworked
-            reply.headers.resize(3);
-            if ("gpx" == route_parameters.output_format)
-            {
-                reply.headers[1].name = "Content-Type";
-                reply.headers[1].value = "application/gpx+xml; charset=UTF-8";
-                reply.headers[2].name = "Content-Disposition";
-                reply.headers[2].value = "attachment; filename=\"route.gpx\"";
-            }
-            else if (!route_parameters.jsonp_parameter.empty())
-            {
-                reply.content.push_back(')');
-                reply.headers[1].name = "Content-Type";
-                reply.headers[1].value = "text/javascript";
-                reply.headers[2].name = "Content-Disposition";
-                reply.headers[2].value = "attachment; filename=\"response.js\"";
-            }
-            else
-            {
-                reply.headers[1].name = "Content-Type";
-                reply.headers[1].value = "application/x-javascript";
-                reply.headers[2].name = "Content-Disposition";
-                reply.headers[2].value = "attachment; filename=\"response.json\"";
-            }
-            reply.headers[0].name = "Content-Length";
-            reply.headers[0].value = IntToString(reply.content.size());
-            return;
+        { // jsonp
+            reply.headers.emplace_back("Content-Type", "text/javascript; charset=UTF-8");
+            reply.headers.emplace_back("Content-Disposition", "inline; filename=\"response.js\"");
         }
     }
     catch (const std::exception &e)

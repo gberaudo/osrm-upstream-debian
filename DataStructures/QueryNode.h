@@ -36,32 +36,31 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <limits>
 
-#include "osrm/OSRM_config.h"
-
 struct NodeInfo : public Coordinate
 {
     typedef NodeID key_type; // type of NodeID
     typedef int value_type; // type of lat,lons
 
-    NodeInfo(int lat, int lon, NodeID id) : Coordinate(lat, lon, MAX), id(id) {
-    }
-    NodeInfo() : Coordinate(MAX, MAX, MAX), id(std::numeric_limits<unsigned>::max())
+    explicit NodeInfo(int lat, int lon, NodeID node_id) : Coordinate(lat, lon, MAX), node_id(node_id) {}
+    NodeInfo()
+        : Coordinate(MAX, MAX, MAX),
+        node_id(std::numeric_limits<unsigned>::max())
     {
     }
 
-    NodeID id;
+    NodeID node_id;
 
     static NodeInfo min_value()
     {
-        return NodeInfo(-90 * COORDINATE_PRECISION,
-                        -180 * COORDINATE_PRECISION,
+        return NodeInfo(static_cast<int>(-90 * COORDINATE_PRECISION),
+                        static_cast<int>(-180 * COORDINATE_PRECISION),
                         std::numeric_limits<NodeID>::min());
     }
 
     static NodeInfo max_value()
     {
-        return NodeInfo(90 * COORDINATE_PRECISION,
-                        180 * COORDINATE_PRECISION,
+        return NodeInfo(static_cast<int>(90 * COORDINATE_PRECISION),
+                        static_cast<int>(180 * COORDINATE_PRECISION),
                         std::numeric_limits<NodeID>::max());
     }
 

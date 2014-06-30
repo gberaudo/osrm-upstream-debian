@@ -30,7 +30,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Util/GitDescription.h"
 #include "Util/ProgramOptions.h"
 #include "Util/SimpleLogger.h"
-#include "Util/UUID.h"
+#include "Util/FingerPrint.h"
 
 #ifdef __linux__
 #include <sys/mman.h>
@@ -146,7 +146,7 @@ int main(int argc, const char *argv[])
         }
         else
         {
-            std::packaged_task<void()> server_task(std::bind(&Server::Run, routing_server));
+            std::packaged_task<int()> server_task([&]()->int{ routing_server->Run(); return 0; });
             auto future = server_task.get_future();
             std::thread server_thread(std::move(server_task));
 

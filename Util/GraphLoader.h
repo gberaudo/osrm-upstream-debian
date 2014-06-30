@@ -34,12 +34,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../DataStructures/QueryNode.h"
 #include "../DataStructures/Restriction.h"
 #include "../Util/SimpleLogger.h"
-#include "../Util/UUID.h"
+#include "../Util/FingerPrint.h"
 #include "../typedefs.h"
 
 #include <boost/assert.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
+
+#include <tbb/parallel_sort.h>
 
 #include <cmath>
 
@@ -59,11 +61,11 @@ NodeID readBinaryOSRMGraphFromStream(std::istream &input_stream,
                                      std::vector<TurnRestriction> &restriction_list,
                                      const bool use_elevation)
 {
-    const UUID uuid_orig;
-    UUID uuid_loaded;
-    input_stream.read((char *)&uuid_loaded, sizeof(UUID));
+    const FingerPrint fingerprint_orig;
+    FingerPrint fingerprint_loaded;
+    input_stream.read((char *)&fingerprint_loaded, sizeof(FingerPrint));
 
-    if (!uuid_loaded.TestGraphUtil(uuid_orig))
+    if (!fingerprint_loaded.TestGraphUtil(fingerprint_orig))
     {
         SimpleLogger().Write(logWARNING) << ".osrm was prepared with different build.\n"
                                             "Reprocess to get rid of this warning.";
@@ -75,20 +77,17 @@ NodeID readBinaryOSRMGraphFromStream(std::istream &input_stream,
     std::unordered_map<NodeID, NodeID> ext_to_int_id_map;
     input_stream.read((char *)&n, sizeof(NodeID));
     SimpleLogger().Write() << "Importing n = " << n << " nodes ";
-    ExternalMemoryNode node;
+    ExternalMemoryNode current_node;
     for (NodeID i = 0; i < n; ++i)
     {
-        input_stream.read((char *)&node, sizeof(ExternalMemoryNode));
-        int_to_ext_node_id_map->emplace_back(node.lat, node.lon, node.id);
-        if (use_elevation) {
-            int_to_ext_node_id_map->back().setEle(node.getEle());
-        }
-        ext_to_int_id_map.emplace(node.id, i);
-        if (node.bollard)
+        input_stream.read((char *)&current_node, sizeof(ExternalMemoryNode));
+        int_to_ext_node_id_map->emplace_back(current_node);
+        ext_to_int_id_map.emplace(current_node.node_id, i);
+        if (current_node.bollard)
         {
             barrier_node_list.emplace_back(i);
         }
-        if (node.trafficLight)
+        if (current_node.trafficLight)
         {
             traffic_light_node_list.emplace_back(i);
         }
@@ -206,55 +205,55 @@ NodeID readBinaryOSRMGraphFromStream(std::istream &input_stream,
                                is_split);
     }
 
-    std::sort(edge_list.begin(), edge_list.end());
+    tbb::parallel_sort(edge_list.begin(), edge_list.end());
     for (unsigned i = 1; i < edge_list.size(); ++i)
     {
-        if ((edge_list[i - 1].target() == edge_list[i].target()) &&
-            (edge_list[i - 1].source() == edge_list[i].source()))
+        if ((edge_list[i - 1].target == edge_list[i].target) &&
+            (edge_list[i - 1].source == edge_list[i].source))
         {
             const bool edge_flags_equivalent =
-                (edge_list[i - 1].isForward() == edge_list[i].isForward()) &&
-                (edge_list[i - 1].isBackward() == edge_list[i].isBackward());
+                (edge_list[i - 1].forward == edge_list[i].forward) &&
+                (edge_list[i - 1].backward == edge_list[i].backward);
             const bool edge_flags_are_superset1 =
-                (edge_list[i - 1].isForward() && edge_list[i - 1].isBackward()) &&
-                (edge_list[i].isBackward() != edge_list[i].isBackward());
+                (edge_list[i - 1].forward && edge_list[i - 1].backward) &&
+                (edge_list[i].backward != edge_list[i].backward);
             const bool edge_flags_are_superset_2 =
-                (edge_list[i].isForward() && edge_list[i].isBackward()) &&
-                (edge_list[i - 1].isBackward() != edge_list[i - 1].isBackward());
+                (edge_list[i].forward && edge_list[i].backward) &&
+                (edge_list[i - 1].backward != edge_list[i - 1].backward);
 
             if (edge_flags_equivalent)
             {
-                edge_list[i]._weight = std::min(edge_list[i - 1].weight(), edge_list[i].weight());
-                edge_list[i - 1]._source = UINT_MAX;
+                edge_list[i].weight = std::min(edge_list[i - 1].weight, edge_list[i].weight);
+                edge_list[i - 1].source = UINT_MAX;
             }
             else if (edge_flags_are_superset1)
             {
-                if (edge_list[i - 1].weight() <= edge_list[i].weight())
+                if (edge_list[i - 1].weight <= edge_list[i].weight)
                 {
                     // edge i-1 is smaller and goes in both directions. Throw away the other edge
-                    edge_list[i]._source = UINT_MAX;
+                    edge_list[i].source = UINT_MAX;
                 }
                 else
                 {
                     // edge i-1 is open in both directions, but edge i is smaller in one direction.
                     // Close edge i-1 in this direction
-                    edge_list[i - 1].forward = !edge_list[i].isForward();
-                    edge_list[i - 1].backward = !edge_list[i].isBackward();
+                    edge_list[i - 1].forward = !edge_list[i].forward;
+                    edge_list[i - 1].backward = !edge_list[i].backward;
                 }
             }
             else if (edge_flags_are_superset_2)
             {
-                if (edge_list[i - 1].weight() <= edge_list[i].weight())
+                if (edge_list[i - 1].weight <= edge_list[i].weight)
                 {
                     // edge i-1 is smaller for one direction. edge i is open in both. close edge i
                     // in the other direction
-                    edge_list[i].forward = !edge_list[i - 1].isForward();
-                    edge_list[i].backward = !edge_list[i - 1].isBackward();
+                    edge_list[i].forward = !edge_list[i - 1].forward;
+                    edge_list[i].backward = !edge_list[i - 1].backward;
                 }
                 else
                 {
                     // edge i is smaller and goes in both direction. Throw away edge i-1
-                    edge_list[i - 1]._source = UINT_MAX;
+                    edge_list[i - 1].source = UINT_MAX;
                 }
             }
         }
@@ -262,7 +261,7 @@ NodeID readBinaryOSRMGraphFromStream(std::istream &input_stream,
     const auto new_end_iter = std::remove_if(edge_list.begin(),
                                        edge_list.end(),
                                        [](const EdgeT &edge)
-                                       { return edge.source() == UINT_MAX; });
+                                       { return edge.source == SPECIAL_NODEID; });
     ext_to_int_id_map.clear();
     edge_list.erase(new_end_iter, edge_list.end()); // remove excess candidates.
     edge_list.shrink_to_fit();
@@ -287,9 +286,9 @@ unsigned readHSGRFromStream(const boost::filesystem::path &hsgr_file,
 
     boost::filesystem::ifstream hsgr_input_stream(hsgr_file, std::ios::binary);
 
-    UUID uuid_loaded, uuid_orig;
-    hsgr_input_stream.read((char *)&uuid_loaded, sizeof(UUID));
-    if (!uuid_loaded.TestGraphUtil(uuid_orig))
+    FingerPrint fingerprint_loaded, fingerprint_orig;
+    hsgr_input_stream.read((char *)&fingerprint_loaded, sizeof(FingerPrint));
+    if (!fingerprint_loaded.TestGraphUtil(fingerprint_orig))
     {
         SimpleLogger().Write(logWARNING) << ".hsgr was prepared with different build.\n"
                                             "Reprocess to get rid of this warning.";
@@ -310,7 +309,10 @@ unsigned readHSGRFromStream(const boost::filesystem::path &hsgr_file,
     hsgr_input_stream.read((char *)&(node_list[0]), number_of_nodes * sizeof(NodeT));
 
     edge_list.resize(number_of_edges);
-    hsgr_input_stream.read((char *)&(edge_list[0]), number_of_edges * sizeof(EdgeT));
+    if (number_of_edges > 0)
+    {
+        hsgr_input_stream.read((char *)&(edge_list[0]), number_of_edges * sizeof(EdgeT));
+    }
     hsgr_input_stream.close();
 
     return number_of_nodes;

@@ -37,6 +37,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../DataStructures/Restriction.h"
 #include "../DataStructures/TurnInstructions.h"
 
+#include "../Util/OSRMException.h"
 #include "../Util/SimpleLogger.h"
 #include "../Util/StdHashExtensions.h"
 
@@ -152,52 +153,48 @@ class TarjanSCC
         DeallocatingVector<TarjanEdge> edge_list;
         for (const NodeBasedEdge &input_edge : input_edges)
         {
-            if (input_edge.source() == input_edge.target())
+            if (input_edge.source == input_edge.target)
             {
                 continue;
             }
 
             TarjanEdge edge;
-            if (input_edge.isForward())
+            if (input_edge.forward)
             {
-                edge.source = input_edge.source();
-                edge.target = input_edge.target();
-                edge.data.forward = input_edge.isForward();
-                edge.data.backward = input_edge.isBackward();
+                edge.source = input_edge.source;
+                edge.target = input_edge.target;
+                edge.data.forward = input_edge.forward;
+                edge.data.backward = input_edge.backward;
             }
             else
             {
-                edge.source = input_edge.target();
-                edge.target = input_edge.source();
-                edge.data.backward = input_edge.isForward();
-                edge.data.forward = input_edge.isBackward();
+                edge.source = input_edge.target;
+                edge.target = input_edge.source;
+                edge.data.backward = input_edge.forward;
+                edge.data.forward = input_edge.backward;
             }
 
-            edge.data.distance = (std::max)((int)input_edge.weight(), 1);
+            edge.data.distance = (std::max)((int)input_edge.weight, 1);
             BOOST_ASSERT(edge.data.distance > 0);
             edge.data.shortcut = false;
-            // edge.data.roundabout = input_edge.isRoundabout();
-            // edge.data.ignoreInGrid = input_edge.ignoreInGrid();
-            edge.data.name_id = input_edge.name();
-            edge.data.type = input_edge.type();
-            // edge.data.isAccessRestricted = input_edge.isAccessRestricted();
+            edge.data.name_id = input_edge.name_id;
+            edge.data.type = input_edge.type;
             edge.data.reversedEdge = false;
             edge_list.push_back(edge);
             if (edge.data.backward)
             {
                 std::swap(edge.source, edge.target);
-                edge.data.forward = input_edge.isBackward();
-                edge.data.backward = input_edge.isForward();
+                edge.data.forward = input_edge.backward;
+                edge.data.backward = input_edge.forward;
                 edge.data.reversedEdge = true;
                 edge_list.push_back(edge);
             }
         }
-        std::vector<NodeBasedEdge>().swap(input_edges);
+        input_edges.shrink_to_fit();
         BOOST_ASSERT_MSG(0 == input_edges.size() && 0 == input_edges.capacity(),
                          "input edge vector not properly deallocated");
 
         std::sort(edge_list.begin(), edge_list.end());
-
         m_node_based_graph = std::make_shared<TarjanDynamicGraph>(number_of_nodes, edge_list);
     }
 
@@ -217,20 +214,20 @@ class TarjanSCC
         const char *pszDriverName = "ESRI Shapefile";
         OGRSFDriver *poDriver =
             OGRSFDriverRegistrar::GetRegistrar()->GetDriverByName(pszDriverName);
-        if (NULL == poDriver)
+        if (nullptr == poDriver)
         {
             throw OSRMException("ESRI Shapefile driver not available");
         }
-        OGRDataSource *poDS = poDriver->CreateDataSource("component.shp", NULL);
+        OGRDataSource *poDS = poDriver->CreateDataSource("component.shp", nullptr);
 
-        if (NULL == poDS)
+        if (nullptr == poDS)
         {
             throw OSRMException("Creation of output file failed");
         }
 
-        OGRLayer *poLayer = poDS->CreateLayer("component", NULL, wkbLineString, NULL);
+        OGRLayer *poLayer = poDS->CreateLayer("component", nullptr, wkbLineString, nullptr);
 
-        if (NULL == poLayer)
+        if (nullptr == poLayer)
         {
             throw OSRMException("Layer creation failed.");
         }
@@ -328,15 +325,6 @@ class TarjanSCC
         SimpleLogger().Write() << "identified: " << component_size_vector.size()
                                << " many components, marking small components";
 
-        // TODO/C++11: prime candidate for lambda function
-        // unsigned size_one_counter = 0;
-        // for (unsigned i = 0, end = component_size_vector.size(); i < end; ++i)
-        // {
-        //     if (1 == component_size_vector[i])
-        //     {
-        //         ++size_one_counter;
-        //     }
-        // }
         unsigned size_one_counter = std::count_if(component_size_vector.begin(),
                                                   component_size_vector.end(),
                                                   [] (unsigned value) { return 1 == value;});

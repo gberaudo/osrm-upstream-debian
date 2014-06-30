@@ -48,7 +48,7 @@ inline bool durationIsValid(const std::string &s)
 
     std::vector<std::string> result;
     boost::algorithm::split_regex(result, s, boost::regex(":"));
-    bool matched = regex_match(s, e);
+    const bool matched = regex_match(s, e);
     return matched;
 }
 
@@ -63,23 +63,23 @@ inline unsigned parseDuration(const std::string &s)
 
     std::vector<std::string> result;
     boost::algorithm::split_regex(result, s, boost::regex(":"));
-    bool matched = regex_match(s, e);
+    const bool matched = regex_match(s, e);
     if (matched)
     {
         if (1 == result.size())
         {
-            minutes = stringToInt(result[0]);
+            minutes = StringToUint(result[0]);
         }
         if (2 == result.size())
         {
-            minutes = stringToInt(result[1]);
-            hours = stringToInt(result[0]);
+            minutes = StringToUint(result[1]);
+            hours = StringToUint(result[0]);
         }
         if (3 == result.size())
         {
-            seconds = stringToInt(result[2]);
-            minutes = stringToInt(result[1]);
-            hours = stringToInt(result[0]);
+            seconds = StringToUint(result[2]);
+            minutes = StringToUint(result[1]);
+            hours = StringToUint(result[0]);
         }
         return 10 * (3600 * hours + 60 * minutes + seconds);
     }

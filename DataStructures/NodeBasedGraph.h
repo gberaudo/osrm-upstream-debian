@@ -3,6 +3,9 @@
 
 #include "DynamicGraph.h"
 #include "ImportEdge.h"
+#include "../Util/SimpleLogger.h"
+
+#include <tbb/parallel_sort.h>
 
 #include <memory>
 
@@ -50,27 +53,25 @@ inline std::shared_ptr<NodeBasedDynamicGraph>
 NodeBasedDynamicGraphFromImportEdges(int number_of_nodes, std::vector<ImportEdge> &input_edge_list)
 {
     static_assert(sizeof(NodeBasedEdgeData) == 16, "changing node based edge data size changes memory consumption");
-    std::sort(input_edge_list.begin(), input_edge_list.end());
+    // tbb::parallel_sort(input_edge_list.begin(), input_edge_list.end());
 
-    // TODO: remove duplicate edges
     DeallocatingVector<NodeBasedDynamicGraph::InputEdge> edges_list;
     NodeBasedDynamicGraph::InputEdge edge;
     for (const ImportEdge &import_edge : input_edge_list)
     {
-        // TODO: give ImportEdge a proper c'tor to use emplace_back's below
-        if (!import_edge.isForward())
+        if (import_edge.forward)
         {
-            edge.source = import_edge.target();
-            edge.target = import_edge.source();
-            edge.data.backward = import_edge.isForward();
-            edge.data.forward = import_edge.isBackward();
+            edge.source = import_edge.source;
+            edge.target = import_edge.target;
+            edge.data.forward = import_edge.forward;
+            edge.data.backward = import_edge.backward;
         }
         else
         {
-            edge.source = import_edge.source();
-            edge.target = import_edge.target();
-            edge.data.forward = import_edge.isForward();
-            edge.data.backward = import_edge.isBackward();
+            edge.source = import_edge.target;
+            edge.target = import_edge.source;
+            edge.data.backward = import_edge.forward;
+            edge.data.forward = import_edge.backward;
         }
 
         if (edge.source == edge.target)
@@ -78,18 +79,18 @@ NodeBasedDynamicGraphFromImportEdges(int number_of_nodes, std::vector<ImportEdge
             continue;
         }
 
-        edge.data.distance = (std::max)((int)import_edge.weight(), 1);
+        edge.data.distance = (std::max)((int)import_edge.weight, 1);
         BOOST_ASSERT(edge.data.distance > 0);
         edge.data.shortcut = false;
-        edge.data.roundabout = import_edge.isRoundabout();
-        edge.data.ignore_in_grid = import_edge.ignoreInGrid();
-        edge.data.nameID = import_edge.name();
-        edge.data.type = import_edge.type();
-        edge.data.isAccessRestricted = import_edge.isAccessRestricted();
-        edge.data.contraFlow = import_edge.isContraFlow();
+        edge.data.roundabout = import_edge.roundabout;
+        edge.data.ignore_in_grid = import_edge.in_tiny_cc;
+        edge.data.nameID = import_edge.name_id;
+        edge.data.type = import_edge.type;
+        edge.data.isAccessRestricted = import_edge.access_restricted;
+        edge.data.contraFlow = import_edge.contra_flow;
         edges_list.push_back(edge);
 
-        if (!import_edge.IsSplit())
+        if (!import_edge.is_split)
         {
             using std::swap; // enable ADL
             swap(edge.source, edge.target);
@@ -98,12 +99,67 @@ NodeBasedDynamicGraphFromImportEdges(int number_of_nodes, std::vector<ImportEdge
         }
     }
 
+    // remove duplicate edges
     std::sort(edges_list.begin(), edges_list.end());
+    NodeID edge_count = 0;
+    for (NodeID i = 0; i < edges_list.size(); )
+    {
+        const NodeID source = edges_list[i].source;
+        const NodeID target = edges_list[i].target;
+        // remove eigenloops
+        if (source == target)
+        {
+            i++;
+            continue;
+        }
+        NodeBasedDynamicGraph::InputEdge forward_edge;
+        NodeBasedDynamicGraph::InputEdge reverse_edge;
+        forward_edge = reverse_edge = edges_list[i];
+        forward_edge.data.forward = reverse_edge.data.backward = true;
+        forward_edge.data.backward = reverse_edge.data.forward = false;
+        forward_edge.data.shortcut = reverse_edge.data.shortcut = false;
+        forward_edge.data.distance = reverse_edge.data.distance =
+            std::numeric_limits<int>::max();
+        // remove parallel edges
+        while (i < edges_list.size() && edges_list[i].source == source && edges_list[i].target == target)
+        {
+            if (edges_list[i].data.forward)
+            {
+                forward_edge.data.distance =
+                    std::min(edges_list[i].data.distance, forward_edge.data.distance);
+            }
+            if (edges_list[i].data.backward)
+            {
+                reverse_edge.data.distance =
+                    std::min(edges_list[i].data.distance, reverse_edge.data.distance);
+            }
+            ++i;
+        }
+        // merge edges (s,t) and (t,s) into bidirectional edge
+        if (forward_edge.data.distance == reverse_edge.data.distance)
+        {
+            if ((int)forward_edge.data.distance != std::numeric_limits<int>::max())
+            {
+                forward_edge.data.backward = true;
+                edges_list[edge_count++] = forward_edge;
+            }
+        }
+        else
+        { // insert seperate edges
+            if (((int)forward_edge.data.distance) != std::numeric_limits<int>::max())
+            {
+                edges_list[edge_count++] = forward_edge;
+            }
+            if ((int)reverse_edge.data.distance != std::numeric_limits<int>::max())
+            {
+                edges_list[edge_count++] = reverse_edge;
+            }
+        }
+    }
+    edges_list.resize(edge_count);
+    SimpleLogger().Write() << "merged " << edges_list.size() - edge_count << " edges out of " << edges_list.size();
+
     auto graph = std::make_shared<NodeBasedDynamicGraph>(number_of_nodes, edges_list);
-
-    edges_list.clear();
-    BOOST_ASSERT(0 == edges_list.size());
-
     return graph;
 }
 

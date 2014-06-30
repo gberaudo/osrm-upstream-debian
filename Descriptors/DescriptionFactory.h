@@ -31,7 +31,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../Algorithms/DouglasPeucker.h"
 #include "../Algorithms/PolylineCompressor.h"
 #include "../DataStructures/PhantomNodes.h"
-#include "../DataStructures/RawRouteData.h"
 #include "../DataStructures/SegmentInformation.h"
 #include "../DataStructures/TurnInstructions.h"
 #include "../Util/SimpleLogger.h"
@@ -42,6 +41,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <limits>
 #include <vector>
 
+struct PathData;
 /* This class is fed with all way segments in consecutive order
  *  and produces the description plus the encoded polyline */
 
@@ -53,6 +53,8 @@ class DescriptionFactory
 
     double DegreeToRadian(const double degree) const;
     double RadianToDegree(const double degree) const;
+
+    std::vector<unsigned> via_indices;
 
   public:
     struct RouteSummary
@@ -66,8 +68,8 @@ class DescriptionFactory
         void BuildDurationAndLengthStrings(const double raw_distance, const unsigned raw_duration)
         {
             // compute distance/duration for route summary
-            distance = round(raw_distance);
-            duration = round(raw_duration / 10.);
+            distance = static_cast<unsigned>(round(raw_distance));
+            duration = static_cast<unsigned>(round(raw_duration / 10.));
         }
     } summary;
 
@@ -76,12 +78,12 @@ class DescriptionFactory
     // I know, declaring this public is considered bad. I'm lazy
     std::vector<SegmentInformation> path_description;
     DescriptionFactory();
-    JSON::Value AppendUnencodedPolylineString() const;
-    void AppendSegment(const FixedPointCoordinate &coordinate, const PathData &data, const bool use_elevation, const int elevation);
+    void AppendSegment(const FixedPointCoordinate &coordinate, const PathData &data);
     void BuildRouteSummary(const double distance, const unsigned time);
-    void SetStartSegment(const PhantomNode &start_phantom, const bool use_elevation, const int elevation);
-    void SetEndSegment(const PhantomNode &start_phantom, const bool use_elevation, const int elevation);
-    JSON::Value AppendEncodedPolylineString(const bool return_encoded, const bool use_elevation = false);
+    void SetStartSegment(const PhantomNode &start_phantom, const bool traversed_in_reverse);
+    void SetEndSegment(const PhantomNode &start_phantom, const bool traversed_in_reverse);
+    JSON::Value AppendEncodedPolylineString(const bool return_encoded, const bool use_elevation);
+    std::vector<unsigned> const & GetViaIndices() const;
 
     template <class DataFacadeT> void Run(const DataFacadeT *facade, const unsigned zoomLevel)
     {
@@ -143,7 +145,7 @@ class DescriptionFactory
         //        string0 = string1;
         //    }
 
-        double segment_length = 0.;
+        float segment_length = 0.;
         unsigned segment_duration = 0;
         unsigned segment_start_index = 0;
 
@@ -190,14 +192,23 @@ class DescriptionFactory
         polyline_generalizer.Run(path_description, zoomLevel);
 
         // fix what needs to be fixed else
+        unsigned necessary_pieces = 0; // a running index that counts the necessary pieces
         for (unsigned i = 0; i < path_description.size() - 1 && path_description.size() >= 2; ++i)
         {
             if (path_description[i].necessary)
             {
+                ++necessary_pieces;
+                if (path_description[i].is_via_location)
+                {   //mark the end of a leg
+                    via_indices.push_back(necessary_pieces);
+                }
                 const double angle = path_description[i+1].location.GetBearing(path_description[i].location);
-                path_description[i].bearing = angle * 10;
+                path_description[i].bearing = static_cast<unsigned>(angle * 10);
             }
         }
+        via_indices.push_back(necessary_pieces+1);
+        BOOST_ASSERT(via_indices.size() >= 2);
+        // BOOST_ASSERT(0 != necessary_pieces || path_description.empty());
         return;
     }
 };

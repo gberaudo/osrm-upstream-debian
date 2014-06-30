@@ -38,6 +38,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <limits>
 #include <vector>
+#include <atomic>
 
 template <typename EdgeDataT> class DynamicGraph
 {
@@ -91,7 +92,7 @@ template <typename EdgeDataT> class DynamicGraph
             position += m_nodes[node].edges;
         }
         m_nodes.back().firstEdge = position;
-        m_edges.reserve(position * 1.1);
+        m_edges.reserve(static_cast<std::size_t>(position * 1.1));
         m_edges.resize(position);
         edge = 0;
         for (NodeIterator node = 0; node < m_numNodes; ++node)
@@ -198,7 +199,6 @@ template <typename EdgeDataT> class DynamicGraph
     void DeleteEdge(const NodeIterator source, const EdgeIterator e)
     {
         Node &node = m_nodes[source];
-#pragma omp atomic
         --m_numEdges;
         --node.edges;
         BOOST_ASSERT(std::numeric_limits<unsigned>::max() != node.edges);
@@ -226,7 +226,6 @@ template <typename EdgeDataT> class DynamicGraph
             }
         }
 
-#pragma omp atomic
         m_numEdges -= deleted;
         m_nodes[source].edges -= deleted;
 
@@ -272,7 +271,7 @@ template <typename EdgeDataT> class DynamicGraph
     };
 
     NodeIterator m_numNodes;
-    EdgeIterator m_numEdges;
+    std::atomic_uint m_numEdges;
 
     std::vector<Node> m_nodes;
     DeallocatingVector<Edge> m_edges;

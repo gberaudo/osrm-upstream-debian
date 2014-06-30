@@ -32,7 +32,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <iostream>
 
-#if defined(__x86_64__)
+#if defined(__x86_64__) && !defined(__MINGW64__)
 #include <cpuid.h>
 #else
 #include <boost/crc.hpp> // for boost::crc_32_type
@@ -105,7 +105,7 @@ template <class ContainerT> class IteratorbasedCRC32
     {
         static const int SSE42_BIT = 0x00100000;
         const unsigned ecx = cpuid();
-        const bool has_SSE42 = ecx & SSE42_BIT;
+        const bool has_SSE42 = (ecx & SSE42_BIT) != 0;
         if (has_SSE42)
         {
             SimpleLogger().Write() << "using hardware based CRC32 computation";

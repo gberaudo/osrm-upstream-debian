@@ -60,7 +60,10 @@ void RouteParameters::setService(const std::string &service_string) { service = 
 
 void RouteParameters::setOutputFormat(const std::string &format) { output_format = format; }
 
-void RouteParameters::setJSONpParameter(const std::string &parameter) { jsonp_parameter = parameter; }
+void RouteParameters::setJSONpParameter(const std::string &parameter)
+{
+    jsonp_parameter = parameter;
+}
 
 void RouteParameters::addHint(const std::string &hint)
 {
@@ -71,15 +74,19 @@ void RouteParameters::addHint(const std::string &hint)
     }
 }
 
-void RouteParameters::setLanguage(const std::string &language_string) { language = language_string; }
+void RouteParameters::setLanguage(const std::string &language_string)
+{
+    language = language_string;
+}
 
 void RouteParameters::setGeometryFlag(const bool flag) { geometry = flag; }
 
 void RouteParameters::setCompressionFlag(const bool flag) { compression = flag; }
 
-void RouteParameters::addCoordinate(const boost::fusion::vector<double, double> &transmitted_coordinates)
+void
+RouteParameters::addCoordinate(const boost::fusion::vector<double, double> &transmitted_coordinates)
 {
-    const int lat = COORDINATE_PRECISION * boost::fusion::at_c<0>(transmitted_coordinates);
-    const int lon = COORDINATE_PRECISION * boost::fusion::at_c<1>(transmitted_coordinates);
-    coordinates.emplace_back(lat, lon);
+    coordinates.emplace_back(
+        static_cast<int>(COORDINATE_PRECISION * boost::fusion::at_c<0>(transmitted_coordinates)),
+        static_cast<int>(COORDINATE_PRECISION * boost::fusion::at_c<1>(transmitted_coordinates)));
 }
