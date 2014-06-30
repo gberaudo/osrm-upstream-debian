@@ -15,7 +15,8 @@ Build-Depends: debhelper (>= 8.0.0), cmake,
                libstxxl-dev,
                libosmpbf-dev,
                libprotobuf-dev,
-               libbz2-dev
+               libbz2-dev,
+               libtbb-dev
 Standards-Version: 3.9.3
 Homepage: http://project-osrm.org
 
