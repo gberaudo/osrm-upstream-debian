@@ -37,11 +37,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Util/GitDescription.h"
 #include "Util/GraphLoader.h"
 #include "Util/LuaUtil.h"
-#include "Util/OpenMPWrapper.h"
 #include "Util/OSRMException.h"
 
 #include "Util/SimpleLogger.h"
 #include "Util/StringUtil.h"
+#include "Util/TimingUtil.h"
 #include "typedefs.h"
 
 #include <boost/filesystem.hpp>
@@ -49,10 +49,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <luabind/luabind.hpp>
 
+#include <thread>
 #include <chrono>
 #include <memory>
 #include <string>
 #include <vector>
+
+#include <tbb/task_scheduler_init.h>
+#include <tbb/parallel_sort.h>
 
 typedef QueryEdge::EdgeData EdgeData;
 typedef DynamicGraph<EdgeData>::InputEdge InputEdge;
@@ -69,11 +73,11 @@ int main(int argc, char *argv[])
     try
     {
         LogPolicy::GetInstance().Unmute();
-        std::chrono::time_point<std::chrono::steady_clock> startup_time =
-            std::chrono::steady_clock::now();
+        TIMER_START(preparing);
+        TIMER_START(expansion);
 
         boost::filesystem::path config_file_path, input_path, restrictions_path, profile_path;
-        int requested_num_threads;
+        unsigned int requested_num_threads;
         bool use_elevation;
 
         // declare a group of options that will be allowed only on command line
@@ -97,7 +101,7 @@ int main(int argc, char *argv[])
             "elevation,e", boost::program_options::value<bool>(&use_elevation)->default_value(true),
                 "Process node elevations")(
             "threads,t",
-            boost::program_options::value<int>(&requested_num_threads)->default_value(8),
+            boost::program_options::value<unsigned int>(&requested_num_threads)->default_value(tbb::task_scheduler_init::default_num_threads()),
             "Number of threads to use");
 
         // hidden options, will be allowed both on command line and in config file, but will not be
@@ -176,23 +180,29 @@ int main(int argc, char *argv[])
             return 1;
         }
 
-        int real_num_threads = std::min(omp_get_num_procs(), requested_num_threads);
+        const unsigned recommended_num_threads = tbb::task_scheduler_init::default_num_threads();
 
         SimpleLogger().Write() << "Input file: " << input_path.filename().string();
         SimpleLogger().Write() << "Restrictions file: " << restrictions_path.filename().string();
         SimpleLogger().Write() << "Profile: " << profile_path.filename().string();
         SimpleLogger().Write() << "Using elevation: " << use_elevation;
-        SimpleLogger().Write() << "Threads: " << real_num_threads << " (requested "
-                               << requested_num_threads << ")";
+        SimpleLogger().Write() << "Threads: " << requested_num_threads;
+        if (recommended_num_threads != requested_num_threads)
+        {
+            SimpleLogger().Write(logWARNING) << "The recommended number of threads is "
+                                             << recommended_num_threads
+                                             << "! This setting may have performance side-effects.";
+        }
 
-        omp_set_num_threads(real_num_threads);
+        tbb::task_scheduler_init init(requested_num_threads);
+
         LogPolicy::GetInstance().Unmute();
         boost::filesystem::ifstream restriction_stream(restrictions_path, std::ios::binary);
         TurnRestriction restriction;
-        UUID uuid_loaded, uuid_orig;
+        FingerPrint fingerprint_loaded, fingerprint_orig;
         unsigned number_of_usable_restrictions = 0;
-        restriction_stream.read((char *)&uuid_loaded, sizeof(UUID));
-        if (!uuid_loaded.TestPrepare(uuid_orig))
+        restriction_stream.read((char *)&fingerprint_loaded, sizeof(FingerPrint));
+        if (!fingerprint_loaded.TestPrepare(fingerprint_orig))
         {
             SimpleLogger().Write(logWARNING) << ".restrictions was prepared with different build.\n"
                                                 "Reprocess to get rid of this warning.";
@@ -200,8 +210,11 @@ int main(int argc, char *argv[])
 
         restriction_stream.read((char *)&number_of_usable_restrictions, sizeof(unsigned));
         restriction_list.resize(number_of_usable_restrictions);
-        restriction_stream.read((char *)&(restriction_list[0]),
+        if (number_of_usable_restrictions > 0)
+        {
+            restriction_stream.read((char *)&(restriction_list[0]),
                                 number_of_usable_restrictions * sizeof(TurnRestriction));
+        }
         restriction_stream.close();
 
         boost::filesystem::ifstream in;
@@ -226,10 +239,10 @@ int main(int argc, char *argv[])
         luaL_openlibs(lua_state);
 
         // adjust lua load path
-        luaAddScriptFolderToLoadPath(lua_state, profile_path.c_str());
+        luaAddScriptFolderToLoadPath(lua_state, profile_path.string().c_str());
 
         // Now call our function in a lua script
-        if (0 != luaL_dofile(lua_state, profile_path.c_str()))
+        if (0 != luaL_dofile(lua_state, profile_path.string().c_str()))
         {
             std::cerr << lua_tostring(lua_state, -1) << " occured in scripting block" << std::endl;
             return 1;
@@ -255,8 +268,12 @@ int main(int argc, char *argv[])
 
         speed_profile.has_turn_penalty_function = lua_function_exists(lua_state, "turn_function");
 
+        #ifdef WIN32
+        #pragma message ("Memory consumption on Windows can be higher due to memory alignment")
+        #else
         static_assert(sizeof(ImportEdge) == 20,
                       "changing ImportEdge type has influence on memory consumption!");
+        #endif
         std::vector<ImportEdge> edge_list;
         NodeID number_of_node_based_nodes =
             readBinaryOSRMGraphFromStream(in,
@@ -309,8 +326,10 @@ int main(int argc, char *argv[])
         unsigned number_of_edge_based_nodes = edge_based_graph_factor->GetNumberOfEdgeBasedNodes();
         BOOST_ASSERT(number_of_edge_based_nodes != std::numeric_limits<unsigned>::max());
         DeallocatingVector<EdgeBasedEdge> edgeBasedEdgeList;
+        #ifndef WIN32
         static_assert(sizeof(EdgeBasedEdge) == 16,
                       "changing ImportEdge type has influence on memory consumption!");
+        #endif
 
         edge_based_graph_factor->GetEdgeBasedEdges(edgeBasedEdgeList);
         std::vector<EdgeBasedNode> node_based_edge_list;
@@ -320,8 +339,7 @@ int main(int argc, char *argv[])
         // TODO actually use scoping: Split this up in subfunctions
         node_based_graph.reset();
 
-        std::chrono::duration<double> end_of_expansion_time =
-            std::chrono::steady_clock::now() - startup_time;
+        TIMER_STOP(expansion);
 
         // Building grid-like nearest-neighbor data structure
         SimpleLogger().Write() << "building r-tree ...";
@@ -346,8 +364,11 @@ int main(int argc, char *argv[])
         boost::filesystem::ofstream node_stream(node_filename, std::ios::binary);
         const unsigned size_of_mapping = internal_to_external_node_map.size();
         node_stream.write((char *)&size_of_mapping, sizeof(unsigned));
-        node_stream.write((char *)&(internal_to_external_node_map[0]),
+        if (size_of_mapping > 0)
+        {
+            node_stream.write((char *)&(internal_to_external_node_map[0]),
                           size_of_mapping * sizeof(NodeInfo));
+        }
         node_stream.close();
         internal_to_external_node_map.clear();
         internal_to_external_node_map.shrink_to_fit();
@@ -358,13 +379,12 @@ int main(int argc, char *argv[])
 
         SimpleLogger().Write() << "initializing contractor";
         Contractor *contractor = new Contractor(number_of_edge_based_nodes, edgeBasedEdgeList);
-        std::chrono::time_point<std::chrono::steady_clock> contraction_start_timestamp =
-            std::chrono::steady_clock::now();
 
+        TIMER_START(contraction);
         contractor->Run();
-        std::chrono::duration<double> contraction_duration =
-            std::chrono::steady_clock::now() - contraction_start_timestamp;
-        SimpleLogger().Write() << "Contraction took " << contraction_duration.count() << " sec";
+        TIMER_STOP(contraction);
+
+        SimpleLogger().Write() << "Contraction took " << TIMER_SEC(contraction) << " sec";
 
         DeallocatingVector<QueryEdge> contracted_edge_list;
         contractor->GetEdges(contracted_edge_list);
@@ -381,7 +401,7 @@ int main(int argc, char *argv[])
                                << " edges";
 
         boost::filesystem::ofstream hsgr_output_stream(graphOut, std::ios::binary);
-        hsgr_output_stream.write((char *)&uuid_orig, sizeof(UUID));
+        hsgr_output_stream.write((char *)&fingerprint_orig, sizeof(FingerPrint));
         for (const QueryEdge &edge : contracted_edge_list)
         {
             BOOST_ASSERT(UINT_MAX != edge.source);
@@ -429,8 +449,11 @@ int main(int argc, char *argv[])
         // serialize number of edges
         hsgr_output_stream.write((char *)&contracted_edge_count, sizeof(unsigned));
         // serialize all nodes
-        hsgr_output_stream.write((char *)&node_array[0],
+        if (node_array_size > 0)
+        {
+            hsgr_output_stream.write((char *)&node_array[0],
                                  sizeof(StaticGraph<EdgeData>::NodeArrayEntry) * node_array_size);
+        }
         // serialize all edges
 
         SimpleLogger().Write() << "Building edge array";
@@ -467,20 +490,19 @@ int main(int argc, char *argv[])
         }
         hsgr_output_stream.close();
 
-        std::chrono::duration<double> entire_duration =
-            std::chrono::steady_clock::now() - startup_time;
+        TIMER_STOP(preparing);
 
-        SimpleLogger().Write() << "Preprocessing : " << entire_duration.count() << " seconds";
+        SimpleLogger().Write() << "Preprocessing : " << TIMER_SEC(preparing) << " seconds";
         SimpleLogger().Write() << "Expansion  : "
-                               << (number_of_node_based_nodes / end_of_expansion_time.count())
+                               << (number_of_node_based_nodes / TIMER_SEC(expansion))
                                << " nodes/sec and "
-                               << (number_of_edge_based_nodes / end_of_expansion_time.count())
+                               << (number_of_edge_based_nodes / TIMER_SEC(expansion))
                                << " edges/sec";
 
         SimpleLogger().Write() << "Contraction: "
-                               << (number_of_edge_based_nodes / contraction_duration.count())
+                               << (number_of_edge_based_nodes / TIMER_SEC(contraction))
                                << " nodes/sec and "
-                               << number_of_used_edges / contraction_duration.count()
+                               << number_of_used_edges / TIMER_SEC(contraction)
                                << " edges/sec";
 
         node_array.clear();

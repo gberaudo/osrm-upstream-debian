@@ -28,8 +28,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "TemporaryStorage.h"
 
 StreamData::StreamData()
-    : write_mode(true), temp_path(boost::filesystem::unique_path(temp_directory.append(
-                            TemporaryFilePattern.begin(), TemporaryFilePattern.end()))),
+    : write_mode(true),
+      temp_path(boost::filesystem::unique_path(temp_directory / TemporaryFilePattern)),
       temp_file(new boost::filesystem::fstream(
           temp_path, std::ios::in | std::ios::out | std::ios::trunc | std::ios::binary)),
       readWriteMutex(std::make_shared<boost::mutex>())
@@ -126,7 +126,7 @@ void TemporaryStorage::ReadFromSlot(const int slot_id, char *pointer, const std:
         BOOST_ASSERT(!data.write_mode);
         data.temp_file->read(pointer, size);
     }
-    catch (boost::filesystem::filesystem_error &e) { Abort(e); }
+    catch (boost::filesystem::filesystem_error &error) { Abort(error); }
 }
 
 uint64_t TemporaryStorage::GetFreeBytesOnTemporaryDevice()
@@ -134,19 +134,19 @@ uint64_t TemporaryStorage::GetFreeBytesOnTemporaryDevice()
     uint64_t value = -1;
     try
     {
-        boost::filesystem::path p = boost::filesystem::temp_directory_path();
-        boost::filesystem::space_info s = boost::filesystem::space(p);
-        value = s.free;
+        boost::filesystem::path path = boost::filesystem::temp_directory_path();
+        boost::filesystem::space_info space_info = boost::filesystem::space(path);
+        value = space_info.free;
     }
-    catch (boost::filesystem::filesystem_error &e) { Abort(e); }
+    catch (boost::filesystem::filesystem_error &error) { Abort(error); }
     return value;
 }
 
 void TemporaryStorage::CheckIfTemporaryDeviceFull()
 {
-    boost::filesystem::path p = boost::filesystem::temp_directory_path();
-    boost::filesystem::space_info s = boost::filesystem::space(p);
-    if ((1024 * 1024) > s.free)
+    boost::filesystem::path path = boost::filesystem::temp_directory_path();
+    boost::filesystem::space_info space_info = boost::filesystem::space(path);
+    if ((1024 * 1024) > space_info.free)
     {
         throw OSRMException("temporary device is full");
     }
@@ -165,8 +165,8 @@ boost::filesystem::fstream::pos_type TemporaryStorage::Tell(const int slot_id)
     return position;
 }
 
-void TemporaryStorage::Abort(const boost::filesystem::filesystem_error &e)
+void TemporaryStorage::Abort(const boost::filesystem::filesystem_error &error)
 {
     RemoveAll();
-    throw OSRMException(e.what());
+    throw OSRMException(error.what());
 }

@@ -35,11 +35,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdio>
 #include <cctype>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 // precision:  position after decimal point
 // length: maximum number of digits including comma and decimals
-// handle value=min_int (-min_int = min_int)
+// work with negative values to prevent overflowing when taking -value
 template <int length, int precision> static inline char *printInt(char *buffer, int value)
 {
     bool minus = true;
@@ -89,6 +90,14 @@ static inline std::string IntToString(const int value)
     return output;
 }
 
+static inline std::string UintToString(const unsigned value)
+{
+    std::string output;
+    std::back_insert_iterator<std::string> sink(output);
+    boost::spirit::karma::generate(sink, boost::spirit::karma::uint_, value);
+    return output;
+}
+
 static inline void int64ToString(const int64_t value, std::string &output)
 {
     output.clear();
@@ -96,7 +105,7 @@ static inline void int64ToString(const int64_t value, std::string &output)
     boost::spirit::karma::generate(sink, boost::spirit::karma::long_long, value);
 }
 
-static inline int stringToInt(const std::string &input)
+static inline int StringToInt(const std::string &input)
 {
     auto first_digit = input.begin();
     // Delete any trailing white-spaces
@@ -109,7 +118,7 @@ static inline int stringToInt(const std::string &input)
     return value;
 }
 
-static inline unsigned stringToUint(const std::string &input)
+static inline unsigned StringToUint(const std::string &input)
 {
     auto first_digit = input.begin();
     // Delete any trailing white-spaces
@@ -117,12 +126,12 @@ static inline unsigned stringToUint(const std::string &input)
     {
         ++first_digit;
     }
-    int value = 0;
+    unsigned value = 0;
     boost::spirit::qi::parse(first_digit, input.end(), boost::spirit::uint_, value);
     return value;
 }
 
-static inline uint64_t stringToInt64(const std::string &input)
+static inline uint64_t StringToInt64(const std::string &input)
 {
     auto first_digit = input.begin();
     // Delete any trailing white-spaces

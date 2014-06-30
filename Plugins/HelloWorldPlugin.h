@@ -55,7 +55,7 @@ class HelloWorldPlugin : public BasePlugin
         temp_string = IntToString(routeParameters.zoom_level);
         json_result.values["zoom_level"] = temp_string;
 
-        temp_string = IntToString(routeParameters.check_sum);
+        temp_string = UintToString(routeParameters.check_sum);
         json_result.values["check_sum"] = temp_string;
         json_result.values["instructions"] = (routeParameters.print_instructions ? "yes" : "no");
         json_result.values["geometry"] = (routeParameters.geometry ? "yes" : "no");
@@ -65,7 +65,7 @@ class HelloWorldPlugin : public BasePlugin
         json_result.values["jsonp_parameter"] = (!routeParameters.jsonp_parameter.empty() ? "yes" : "no");
         json_result.values["language"] = (!routeParameters.language.empty() ? "yes" : "no");
 
-        temp_string = IntToString(routeParameters.coordinates.size());
+        temp_string = UintToString(static_cast<unsigned>(routeParameters.coordinates.size()));
         json_result.values["location_count"] = temp_string;
 
         JSON::Array json_locations;
@@ -77,7 +77,7 @@ class HelloWorldPlugin : public BasePlugin
 
             json_coordinates.values.push_back(coordinate.lat / COORDINATE_PRECISION);
             json_coordinates.values.push_back(coordinate.lon / COORDINATE_PRECISION);
-            json_location.values[IntToString(counter)] = json_coordinates;
+            json_location.values[UintToString(counter)] = json_coordinates;
             json_locations.values.push_back(json_location);
             ++counter;
         }
@@ -88,7 +88,6 @@ class HelloWorldPlugin : public BasePlugin
         counter = 0;
         for (const std::string &current_hint : routeParameters.hints)
         {
-            // JSON::String json_hint_string = current_hint;
             json_hints.values.push_back(current_hint);
             ++counter;
         }

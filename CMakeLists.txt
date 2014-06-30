@@ -8,8 +8,6 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 include(GetGitRevisionDescription)
 git_describe(GIT_DESCRIPTION)
 
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
-
 set(bitness 32)
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
   set(bitness 64)
@@ -18,18 +16,23 @@ else()
   message(WARNING "Building on a 32 bit system is unsupported")
 endif()
 
+if (WIN32 AND MSVC_VERSION LESS 1800)
+  message(FATAL_ERROR "Building with Microsoft compiler needs Visual Studio 2013 or later (Express version works too)")
+endif()
+
+OPTION(WITH_TOOLS "Build ORSM tools" OFF)
+
 include_directories(${CMAKE_SOURCE_DIR}/Include/)
 
-add_custom_command(OUTPUT ${CMAKE_SOURCE_DIR}/Util/UUID.cpp UUID.cpp.alwaysbuild
+add_custom_command(OUTPUT ${CMAKE_SOURCE_DIR}/Util/FingerPrint.cpp FingerPrint.cpp.alwaysbuild
   COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
-    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/UUID-Config.cmake
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FingerPrint-Config.cmake
   DEPENDS
-    ${CMAKE_SOURCE_DIR}/Util/UUID.cpp.in
-    ${CMAKE_SOURCE_DIR}/cmake/UUID-Config.cmake
-  COMMENT "Configuring UUID.cpp"
+    ${CMAKE_SOURCE_DIR}/Util/FingerPrint.cpp.in
+  COMMENT "Configuring FingerPrint.cpp"
   VERBATIM)
 
-add_custom_target(UUIDConfigure DEPENDS ${CMAKE_SOURCE_DIR}/Util/UUID.cpp)
+add_custom_target(FingerPrintConfigure DEPENDS ${CMAKE_SOURCE_DIR}/Util/FingerPrint.cpp)
 
 set(BOOST_COMPONENTS date_time filesystem iostreams program_options regex system thread)
 
@@ -38,6 +41,8 @@ configure_file(
   ${CMAKE_SOURCE_DIR}/Util/GitDescription.cpp
 )
 file(GLOB ExtractorGlob Extractor/*.cpp)
+file(GLOB ImporterGlob DataStructures/Import*.cpp)
+add_library(IMPORT STATIC ${ImporterGlob})
 set(ExtractorSources extractor.cpp ${ExtractorGlob})
 add_executable(osrm-extract ${ExtractorSources})
 
@@ -63,14 +68,12 @@ set(
   ${HttpGlob}
 )
 add_library(COORDLIB STATIC ${CoordinateGlob})
-add_library(OSRM ${OSRMSources} Util/GitDescription.cpp Util/UUID.cpp)
-add_library(UUID STATIC Util/UUID.cpp)
+add_library(FINGERPRINT STATIC Util/FingerPrint.cpp)
+add_library(OSRM ${OSRMSources} Util/GitDescription.cpp Util/FingerPrint.cpp)
 add_library(GITDESCRIPTION STATIC Util/GitDescription.cpp)
-add_dependencies(UUID UUIDConfigure)
-add_dependencies(GITDESCRIPTION GIT_DESCRIPTION)
+add_dependencies(FINGERPRINT FingerPrintConfigure)
 
 add_executable(osrm-routed routed.cpp ${ServerGlob})
-set_target_properties(osrm-routed PROPERTIES COMPILE_FLAGS -DROUTED)
 add_executable(osrm-datastore datastore.cpp)
 
 # Check the release mode
@@ -106,16 +109,26 @@ endif()
 # Configuring compilers
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
   # using Clang
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wunreachable-code -Wno-unknown-pragmas -Wno-unneeded-internal-declaration -pedantic -fPIC")
-  message(STATUS "OpenMP parallelization not available using clang++")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wunreachable-code -pedantic -fPIC")
 elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
   # using GCC
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -fopenmp -pedantic -fPIC")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -fPIC")
+  if (WIN32) # using mingw
+    add_definitions(-DM_PI=3.141592653589793238462643383) # define M_PI
+    add_definitions(-DWIN32)
+    SET(OPTIONAL_SOCKET_LIBS ws2_32 wsock32)
+    SET(OPTIONAL_OMP_LIB gomp)
+  endif()
 elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Intel")
   # using Intel C++
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-intel -wd10237 -Wall -openmp -ipo -fPIC")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-intel -wd10237 -Wall -ipo -fPIC")
 elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
   # using Visual Studio C++
+  set(BOOST_COMPONENTS ${BOOST_COMPONENTS} date_time chrono zlib)
+  add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+  add_definitions(-DNOMINMAX) # avoid min and max macros that can break compilation
+  add_definitions(-D_USE_MATH_DEFINES) # define M_PI
+  add_definitions(-D_WIN32_WINNT=0x0501)
 endif()
 
 # disable partitioning of LTO process when possible (fixes Debian issues)
@@ -131,10 +144,9 @@ set(CMAKE_EXE_LINKER_FLAGS    "${CMAKE_EXE_LINKER_FLAGS}    ${LTO_FLAGS} ${LTO_P
 set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} ${LTO_FLAGS} ${LTO_PARTITION_FLAGS}")
 
 # Activate C++11
-ADD_DEFINITIONS(
-    -std=c++11 # Or -std=c++0x
-    # Other flags
-)
+if(NOT "${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+  ADD_DEFINITIONS(-std=c++11)
+endif()
 
 # Configuring other platform dependencies
 if(APPLE)
@@ -142,10 +154,6 @@ if(APPLE)
   message(STATUS "Set Architecture to x64 on OS X")
   exec_program(uname ARGS -v  OUTPUT_VARIABLE DARWIN_VERSION)
   string(REGEX MATCH "[0-9]+" DARWIN_VERSION ${DARWIN_VERSION})
-#  if(DARWIN_VERSION GREATER 12 AND NOT OSXLIBSTD)
-#    message(STATUS "Activating -std=c++11 flag for >= OS X 10.9")
-#    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-#  endif()
   if(OSXLIBSTD)
     message(STATUS "linking against ${OSXLIBSTD}")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=${OSXLIBSTD}")
@@ -156,6 +164,7 @@ if(APPLE)
 endif()
 
 if(UNIX AND NOT APPLE)
+  target_link_libraries(osrm-prepare rt)
   target_link_libraries(osrm-datastore rt)
   target_link_libraries(OSRM rt)
 endif()
@@ -169,13 +178,25 @@ endif()
 include_directories(${Boost_INCLUDE_DIRS})
 
 target_link_libraries(OSRM ${Boost_LIBRARIES} COORDLIB)
-target_link_libraries(osrm-extract ${Boost_LIBRARIES} UUID GITDESCRIPTION COORDLIB)
-target_link_libraries(osrm-prepare ${Boost_LIBRARIES} UUID GITDESCRIPTION COORDLIB)
-target_link_libraries(osrm-routed ${Boost_LIBRARIES} OSRM UUID GITDESCRIPTION)
-target_link_libraries(osrm-datastore ${Boost_LIBRARIES} UUID GITDESCRIPTION COORDLIB)
+target_link_libraries(osrm-extract ${Boost_LIBRARIES} FINGERPRINT GITDESCRIPTION COORDLIB IMPORT)
+target_link_libraries(osrm-prepare ${Boost_LIBRARIES} FINGERPRINT GITDESCRIPTION COORDLIB IMPORT)
+target_link_libraries(osrm-routed ${Boost_LIBRARIES} ${OPTIONAL_SOCKET_LIBS} OSRM FINGERPRINT GITDESCRIPTION)
+target_link_libraries(osrm-datastore ${Boost_LIBRARIES} FINGERPRINT GITDESCRIPTION COORDLIB)
 
 find_package(Threads REQUIRED)
-target_link_libraries(osrm-extract ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(osrm-extract ${CMAKE_THREAD_LIBS_INIT} ${OPTIONAL_OMP_LIB})
+target_link_libraries(osrm-datastore ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(OSRM ${CMAKE_THREAD_LIBS_INIT})
+
+find_package(TBB REQUIRED)
+if(WIN32 AND CMAKE_BUILD_TYPE MATCHES Debug)
+  set(TBB_LIBRARIES ${TBB_DEBUG_LIBRARIES})
+endif()
+target_link_libraries(osrm-datastore ${TBB_LIBRARIES})
+target_link_libraries(osrm-extract ${TBB_LIBRARIES})
+target_link_libraries(osrm-prepare ${TBB_LIBRARIES})
+target_link_libraries(osrm-routed ${TBB_LIBRARIES})
+include_directories(${TBB_INCLUDE_DIR})
 
 find_package(Lua52)
 if(NOT LUA52_FOUND)
@@ -189,6 +210,11 @@ else()
   endif()
 endif()
 
+find_package( Luabind REQUIRED )
+include_directories(${LUABIND_INCLUDE_DIR})
+target_link_libraries(osrm-extract ${LUABIND_LIBRARY})
+target_link_libraries(osrm-prepare ${LUABIND_LIBRARY})
+
 if( LUAJIT_FOUND )
   target_link_libraries(osrm-extract ${LUAJIT_LIBRARIES})
   target_link_libraries(osrm-prepare ${LUAJIT_LIBRARIES})
@@ -201,11 +227,6 @@ include_directories(${LUA_INCLUDE_DIR})
 find_package(LibXml2 REQUIRED)
 include_directories(${LIBXML2_INCLUDE_DIR})
 target_link_libraries(osrm-extract ${LIBXML2_LIBRARIES})
-
-find_package( Luabind REQUIRED )
-include_directories(${LUABIND_INCLUDE_DIR})
-target_link_libraries(osrm-extract ${LUABIND_LIBRARY})
-target_link_libraries(osrm-prepare ${LUABIND_LIBRARY})
 
 find_package( STXXL REQUIRED )
 include_directories(${STXXL_INCLUDE_DIR})
@@ -237,20 +258,22 @@ if(WITH_TOOLS)
   find_package(GDAL)
   if(GDAL_FOUND)
     add_executable(osrm-components Tools/components.cpp)
+    target_link_libraries(osrm-components ${TBB_LIBRARIES} IMPORT)
     include_directories(${GDAL_INCLUDE_DIR})
     target_link_libraries(
       osrm-components
-      ${GDAL_LIBRARIES} ${Boost_LIBRARIES} UUID GITDESCRIPTION COORDLIB)
+      ${GDAL_LIBRARIES} ${Boost_LIBRARIES} FINGERPRINT GITDESCRIPTION COORDLIB)
   endif()
   add_executable(osrm-cli Tools/simpleclient.cpp)
-  target_link_libraries(osrm-cli ${Boost_LIBRARIES} OSRM UUID GITDESCRIPTION)
-    add_executable(osrm-io-benchmark Tools/io-benchmark.cpp)
-    target_link_libraries(osrm-io-benchmark ${Boost_LIBRARIES} GITDESCRIPTION)
-    add_executable(osrm-unlock-all Tools/unlock_all_mutexes.cpp)
-    target_link_libraries(osrm-unlock-all ${Boost_LIBRARIES} GITDESCRIPTION)
-    if(UNIX AND NOT APPLE)
-        target_link_libraries(osrm-unlock-all rt)
-    endif()
+  target_link_libraries(osrm-cli ${Boost_LIBRARIES} ${OPTIONAL_SOCKET_LIBS} OSRM FINGERPRINT GITDESCRIPTION)
+  target_link_libraries(osrm-cli ${TBB_LIBRARIES})
+  add_executable(osrm-io-benchmark Tools/io-benchmark.cpp)
+  target_link_libraries(osrm-io-benchmark ${Boost_LIBRARIES} GITDESCRIPTION)
+  add_executable(osrm-unlock-all Tools/unlock_all_mutexes.cpp)
+  target_link_libraries(osrm-unlock-all ${Boost_LIBRARIES} GITDESCRIPTION)
+  if(UNIX AND NOT APPLE)
+    target_link_libraries(osrm-unlock-all rt)
+  endif()
 endif()
 
 file(GLOB InstallGlob Include/osrm/*.h Library/OSRM.h)

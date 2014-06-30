@@ -52,7 +52,7 @@ class ExtractorCallbacks
                                 std::unordered_map<std::string, NodeID> &string_map);
 
     // warning: caller needs to take care of synchronization!
-    void ProcessNode(const ImportNode &node, const bool use_elevation = false);
+    void ProcessNode(const ImportNode &node, const bool use_elevation);
 
     // warning: caller needs to take care of synchronization!
     bool ProcessRestriction(const InputRestrictionContainer &restriction);

@@ -75,7 +75,8 @@ int main(int argc, const char *argv[])
                                           ip_port,
                                           requested_thread_num,
                                           use_shared_memory,
-                                          trial, use_elevation))
+                                          trial,
+                                          use_elevation))
         {
             return 0;
         }

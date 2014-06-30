@@ -29,9 +29,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define SERVER_FACTORY_H
 
 #include "Server.h"
-#include "../Util/OpenMPWrapper.h"
 #include "../Util/SimpleLogger.h"
-#include "../Util/StringUtil.h"
 
 #include <zlib.h>
 
@@ -39,11 +37,12 @@ struct ServerFactory
 {
     ServerFactory() = delete;
     ServerFactory(const ServerFactory &) = delete;
-    static Server *CreateServer(std::string &ip_address, int ip_port, int threads)
+    static Server *CreateServer(std::string &ip_address, int ip_port, unsigned requested_num_threads)
     {
         SimpleLogger().Write() << "http 1.1 compression handled by zlib version " << zlibVersion();
-        std::string port_stream = IntToString(ip_port);
-        return new Server(ip_address, port_stream, std::min(omp_get_num_procs(), threads));
+        const unsigned hardware_threads = std::max(1u, std::thread::hardware_concurrency());
+        const unsigned real_num_threads = std::min(hardware_threads, requested_num_threads);
+        return new Server(ip_address, ip_port, real_num_threads);
     }
 };
 

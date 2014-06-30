@@ -31,13 +31,17 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "InternalExtractorEdge.h"
 #include "ExtractorStructs.h"
 #include "../DataStructures/Restriction.h"
-#include "../Util/UUID.h"
+#include "../Util/FingerPrint.h"
 
 #include <stxxl/vector>
 
 class ExtractionContainers
 {
+#ifndef _MSC_VER
     constexpr static unsigned stxxl_memory = ((sizeof(std::size_t) == 4) ? std::numeric_limits<int>::max() : std::numeric_limits<unsigned>::max());
+#else
+    const static unsigned stxxl_memory = ((sizeof(std::size_t) == 4) ? INT_MAX : UINT_MAX);
+#endif
   public:
     typedef stxxl::vector<NodeID> STXXLNodeIDVector;
     typedef stxxl::vector<ExternalMemoryNode> STXXLNodeVector;
@@ -52,7 +56,7 @@ class ExtractionContainers
     STXXLStringVector name_list;
     STXXLRestrictionsVector restrictions_list;
     STXXLWayIDStartEndVector way_start_end_id_list;
-    const UUID uuid;
+    const FingerPrint fingerprint;
 
     ExtractionContainers();
 

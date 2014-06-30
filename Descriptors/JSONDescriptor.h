@@ -36,7 +36,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../DataStructures/SegmentInformation.h"
 #include "../DataStructures/TurnInstructions.h"
 #include "../Util/Azimuth.h"
-#include "../Util/EstimateElevation.h"
 #include "../Util/StringUtil.h"
 #include "../Util/TimingUtil.h"
 
@@ -52,35 +51,31 @@ template <class DataFacadeT> class JSONDescriptor : public BaseDescriptor<DataFa
     unsigned entered_restricted_area_count;
     struct RoundAbout
     {
-        RoundAbout() : start_index(INT_MAX), name_id(INT_MAX), leave_at_exit(INT_MAX) {}
+        RoundAbout() : start_index(INT_MAX), name_id(INVALID_NAMEID), leave_at_exit(INT_MAX) {}
         int start_index;
-        int name_id;
+        unsigned name_id;
         int leave_at_exit;
     } round_about;
 
     struct Segment
     {
-        Segment() : name_id(-1), length(-1), position(-1) {}
-        Segment(int n, int l, int p) : name_id(n), length(l), position(p) {}
-        int name_id;
+        Segment() : name_id(INVALID_NAMEID), length(-1), position(0) {}
+        Segment(unsigned n, int l, unsigned p) : name_id(n), length(l), position(p) {}
+        unsigned name_id;
         int length;
-        int position;
+        unsigned position;
     };
     std::vector<Segment> shortest_path_segments, alternative_path_segments;
-    std::vector<unsigned> shortest_leg_end_indices, alternative_leg_end_indices;
     ExtractRouteNames<DataFacadeT, Segment> GenerateRouteNames;
 
-
   public:
-    JSONDescriptor(DataFacadeT *facade) : facade(facade), entered_restricted_area_count(0)
-    {
-        shortest_leg_end_indices.emplace_back(0);
-        alternative_leg_end_indices.emplace_back(0);
-    }
+    JSONDescriptor(DataFacadeT *facade) : facade(facade), entered_restricted_area_count(0) {}
 
     void SetConfig(const DescriptorConfig &c) { config = c; }
 
-    unsigned DescribeLeg(const std::vector<PathData> route_leg, const PhantomNodes &leg_phantoms)
+    unsigned DescribeLeg(const std::vector<PathData> route_leg,
+                         const PhantomNodes &leg_phantoms,
+                         const bool target_traversed_in_reverse)
     {
         unsigned added_element_count = 0;
         // Get all the coordinates for the computed route
@@ -88,20 +83,18 @@ template <class DataFacadeT> class JSONDescriptor : public BaseDescriptor<DataFa
         for (const PathData &path_data : route_leg)
         {
             current_coordinate = facade->GetCoordinateOfNode(path_data.node);
-            description_factory.AppendSegment(current_coordinate, path_data, config.elevation, current_coordinate.getEle());
+            description_factory.AppendSegment(current_coordinate, path_data);
             ++added_element_count;
         }
+        description_factory.SetEndSegment(leg_phantoms.target_phantom, target_traversed_in_reverse);
         ++added_element_count;
         BOOST_ASSERT((route_leg.size() + 1) == added_element_count);
         return added_element_count;
     }
 
-    void Run(const RawRouteData &raw_route,
-             const PhantomNodes &phantom_nodes,
-             http::Reply &reply)
+    void Run(const RawRouteData &raw_route, http::Reply &reply)
     {
         JSON::Object json_result;
-
         if (INVALID_EDGE_WEIGHT == raw_route.shortest_path_length)
         {
             // We do not need to do much, if there is no route ;-)
@@ -112,35 +105,37 @@ template <class DataFacadeT> class JSONDescriptor : public BaseDescriptor<DataFa
         }
 
         // check if first segment is non-zero
-        std::string road_name =
-            facade->GetEscapedNameForNameID(phantom_nodes.source_phantom.name_id);
+        std::string road_name = facade->GetEscapedNameForNameID(
+            raw_route.segment_end_coordinates.front().source_phantom.name_id);
 
         BOOST_ASSERT(raw_route.unpacked_path_segments.size() ==
                      raw_route.segment_end_coordinates.size());
 
-        int source_elevation = config.elevation ? EstimateElevation(phantom_nodes.source_phantom,
-                 raw_route.unpacked_path_segments, facade, true) : 0;
-        description_factory.SetStartSegment(phantom_nodes.source_phantom, config.elevation, source_elevation);
+        description_factory.SetStartSegment(
+            raw_route.segment_end_coordinates.front().source_phantom,
+            raw_route.source_traversed_in_reverse.front());
         json_result.values["status"] = 0;
         json_result.values["status_message"] = "Found route between points";
 
         // for each unpacked segment add the leg to the description
         for (unsigned i = 0; i < raw_route.unpacked_path_segments.size(); ++i)
         {
-            const int added_segments = DescribeLeg(raw_route.unpacked_path_segments[i],
-                                                   raw_route.segment_end_coordinates[i]);
+#ifndef NDEBUG
+            const int added_segments =
+#endif
+            DescribeLeg(raw_route.unpacked_path_segments[i],
+                            raw_route.segment_end_coordinates[i],
+                            raw_route.target_traversed_in_reverse[i]);
             BOOST_ASSERT(0 < added_segments);
-            shortest_leg_end_indices.emplace_back(added_segments + shortest_leg_end_indices.back());
         }
-        int end_elevation = config.elevation? EstimateElevation(phantom_nodes.target_phantom,
-                 raw_route.unpacked_path_segments, facade, false) : 0;
-        description_factory.SetEndSegment(phantom_nodes.target_phantom, config.elevation, end_elevation);
+
         description_factory.Run(facade, config.zoom_level);
 
         if (config.geometry)
         {
-            JSON::Value route_geometry = description_factory.AppendEncodedPolylineString(
-                config.encode_geometry, config.elevation);
+            JSON::Value route_geometry =
+                description_factory.AppendEncodedPolylineString(config.encode_geometry,
+                config.elevation);
             json_result.values["route_geometry"] = route_geometry;
         }
         if (config.instructions)
@@ -157,48 +152,64 @@ template <class DataFacadeT> class JSONDescriptor : public BaseDescriptor<DataFa
         JSON::Object json_route_summary;
         json_route_summary.values["total_distance"] = description_factory.summary.distance;
         json_route_summary.values["total_time"] = description_factory.summary.duration;
-        json_route_summary.values["start_point"] = facade->GetEscapedNameForNameID(description_factory.summary.source_name_id);
-        json_route_summary.values["end_point"] = facade->GetEscapedNameForNameID(description_factory.summary.target_name_id);
+        json_route_summary.values["start_point"] =
+            facade->GetEscapedNameForNameID(description_factory.summary.source_name_id);
+        json_route_summary.values["end_point"] =
+            facade->GetEscapedNameForNameID(description_factory.summary.target_name_id);
         json_result.values["route_summary"] = json_route_summary;
 
         BOOST_ASSERT(!raw_route.segment_end_coordinates.empty());
 
         JSON::Array json_via_points_array;
         JSON::Array json_first_coordinate;
-        json_first_coordinate.values.push_back(raw_route.segment_end_coordinates.front().source_phantom.location.lat/COORDINATE_PRECISION);
-        json_first_coordinate.values.push_back(raw_route.segment_end_coordinates.front().source_phantom.location.lon/COORDINATE_PRECISION);
+        json_first_coordinate.values.push_back(
+            raw_route.segment_end_coordinates.front().source_phantom.location.lat /
+            COORDINATE_PRECISION);
+        json_first_coordinate.values.push_back(
+            raw_route.segment_end_coordinates.front().source_phantom.location.lon /
+            COORDINATE_PRECISION);
         json_via_points_array.values.push_back(json_first_coordinate);
         for (const PhantomNodes &nodes : raw_route.segment_end_coordinates)
         {
             std::string tmp;
             JSON::Array json_coordinate;
-            json_coordinate.values.push_back(nodes.target_phantom.location.lat/COORDINATE_PRECISION);
-            json_coordinate.values.push_back(nodes.target_phantom.location.lon/COORDINATE_PRECISION);
+            json_coordinate.values.push_back(nodes.target_phantom.location.lat /
+                                             COORDINATE_PRECISION);
+            json_coordinate.values.push_back(nodes.target_phantom.location.lon /
+                                             COORDINATE_PRECISION);
             json_via_points_array.values.push_back(json_coordinate);
         }
         json_result.values["via_points"] = json_via_points_array;
 
         JSON::Array json_via_indices_array;
-        json_via_indices_array.values.insert(json_via_indices_array.values.end(), shortest_leg_end_indices.begin(), shortest_leg_end_indices.end());
+
+        std::vector<unsigned> const &shortest_leg_end_indices = description_factory.GetViaIndices();
+        json_via_indices_array.values.insert(json_via_indices_array.values.end(),
+                                             shortest_leg_end_indices.begin(),
+                                             shortest_leg_end_indices.end());
         json_result.values["via_indices"] = json_via_indices_array;
 
         // only one alternative route is computed at this time, so this is hardcoded
         if (INVALID_EDGE_WEIGHT != raw_route.alternative_path_length)
         {
-            // TODO? elevation not handled
             json_result.values["found_alternative"] = JSON::True();
-            alternate_description_factory.SetStartSegment(phantom_nodes.source_phantom, false, 0);
+            BOOST_ASSERT(!raw_route.alt_source_traversed_in_reverse.empty());
+            alternate_description_factory.SetStartSegment(
+                raw_route.segment_end_coordinates.front().source_phantom,
+                raw_route.alt_source_traversed_in_reverse.front());
             // Get all the coordinates for the computed route
             for (const PathData &path_data : raw_route.unpacked_alternative)
             {
                 current = facade->GetCoordinateOfNode(path_data.node);
-                alternate_description_factory.AppendSegment(current, path_data, false, 0);
+                alternate_description_factory.AppendSegment(current, path_data);
             }
             alternate_description_factory.Run(facade, config.zoom_level);
 
             if (config.geometry)
             {
-                JSON::Value alternate_geometry_string = alternate_description_factory.AppendEncodedPolylineString(config.encode_geometry);
+                JSON::Value alternate_geometry_string =
+                    alternate_description_factory.AppendEncodedPolylineString(
+                        config.encode_geometry, config.elevation);
                 JSON::Array json_alternate_geometries_array;
                 json_alternate_geometries_array.values.push_back(alternate_geometry_string);
                 json_result.values["alternative_geometries"] = json_alternate_geometries_array;
@@ -220,23 +231,33 @@ template <class DataFacadeT> class JSONDescriptor : public BaseDescriptor<DataFa
 
             JSON::Object json_alternate_route_summary;
             JSON::Array json_alternate_route_summary_array;
-            json_alternate_route_summary.values["total_distance"] = alternate_description_factory.summary.distance;
-            json_alternate_route_summary.values["total_time"] = alternate_description_factory.summary.duration;
-            json_alternate_route_summary.values["start_point"] = facade->GetEscapedNameForNameID(alternate_description_factory.summary.source_name_id);
-            json_alternate_route_summary.values["end_point"] = facade->GetEscapedNameForNameID(alternate_description_factory.summary.target_name_id);
+            json_alternate_route_summary.values["total_distance"] =
+                alternate_description_factory.summary.distance;
+            json_alternate_route_summary.values["total_time"] =
+                alternate_description_factory.summary.duration;
+            json_alternate_route_summary.values["start_point"] = facade->GetEscapedNameForNameID(
+                alternate_description_factory.summary.source_name_id);
+            json_alternate_route_summary.values["end_point"] = facade->GetEscapedNameForNameID(
+                alternate_description_factory.summary.target_name_id);
             json_alternate_route_summary_array.values.push_back(json_alternate_route_summary);
             json_result.values["alternative_summaries"] = json_alternate_route_summary_array;
 
+            std::vector<unsigned> const &alternate_leg_end_indices =
+                alternate_description_factory.GetViaIndices();
             JSON::Array json_altenative_indices_array;
-            json_altenative_indices_array.values.push_back(0);
-            json_altenative_indices_array.values.push_back(alternate_description_factory.path_description.size());
+            json_altenative_indices_array.values.insert(json_altenative_indices_array.values.end(),
+                                                        alternate_leg_end_indices.begin(),
+                                                        alternate_leg_end_indices.end());
             json_result.values["alternative_indices"] = json_altenative_indices_array;
-        } else {
+        }
+        else
+        {
             json_result.values["found_alternative"] = JSON::False();
         }
 
         // Get Names for both routes
-        RouteNames route_names = GenerateRouteNames(shortest_path_segments, alternative_path_segments, facade);
+        RouteNames route_names =
+            GenerateRouteNames(shortest_path_segments, alternative_path_segments, facade);
         JSON::Array json_route_names;
         json_route_names.values.push_back(route_names.shortest_path_name_1);
         json_route_names.values.push_back(route_names.shortest_path_name_2);
@@ -275,13 +296,13 @@ template <class DataFacadeT> class JSONDescriptor : public BaseDescriptor<DataFa
 
     // TODO: reorder parameters
     inline void BuildTextualDescription(DescriptionFactory &description_factory,
-                                        JSON::Array & json_instruction_array,
+                                        JSON::Array &json_instruction_array,
                                         const int route_length,
                                         std::vector<Segment> &route_segments_list)
     {
         // Segment information has following format:
         //["instruction id","streetname",length,position,time,"length","earth_direction",azimuth]
-        unsigned necessary_segments_running_index = 0;
+        unsigned necessary_segments_running_index = 1;
         round_about.leave_at_exit = 0;
         round_about.name_id = 0;
         std::string temp_dist, temp_length, temp_duration, temp_bearing, temp_instruction;
@@ -304,7 +325,8 @@ template <class DataFacadeT> class JSONDescriptor : public BaseDescriptor<DataFa
                     std::string current_turn_instruction;
                     if (TurnInstruction::LeaveRoundAbout == current_instruction)
                     {
-                        temp_instruction = IntToString(as_integer(TurnInstruction::EnterRoundAbout));
+                        temp_instruction =
+                            IntToString(as_integer(TurnInstruction::EnterRoundAbout));
                         current_turn_instruction += temp_instruction;
                         current_turn_instruction += "-";
                         temp_instruction = IntToString(round_about.leave_at_exit + 1);
@@ -318,14 +340,16 @@ template <class DataFacadeT> class JSONDescriptor : public BaseDescriptor<DataFa
                     }
                     json_instruction_row.values.push_back(current_turn_instruction);
 
-                    json_instruction_row.values.push_back(facade->GetEscapedNameForNameID(segment.name_id));
+                    json_instruction_row.values.push_back(
+                        facade->GetEscapedNameForNameID(segment.name_id));
                     json_instruction_row.values.push_back(std::round(segment.length));
                     json_instruction_row.values.push_back(necessary_segments_running_index);
                     json_instruction_row.values.push_back(round(segment.duration / 10));
-                    json_instruction_row.values.push_back(IntToString(segment.length)+"m");
-                    int bearing_value = round(segment.bearing / 10.);
+                    json_instruction_row.values.push_back(
+                        UintToString(static_cast<unsigned>(segment.length)) + "m");
+                    const double bearing_value = (segment.bearing / 10.) ;
                     json_instruction_row.values.push_back(Azimuth::Get(bearing_value));
-                    json_instruction_row.values.push_back(bearing_value);
+                    json_instruction_row.values.push_back(static_cast<unsigned>(round(bearing_value)));
 
                     route_segments_list.emplace_back(
                         segment.name_id, segment.length, route_segments_list.size());
@@ -342,7 +366,7 @@ template <class DataFacadeT> class JSONDescriptor : public BaseDescriptor<DataFa
             }
         }
 
-        //TODO: check if this in an invariant
+        // TODO: check if this in an invariant
         if (INVALID_EDGE_WEIGHT != route_length)
         {
             JSON::Array json_last_instruction_row;

@@ -30,8 +30,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "BaseDescriptor.h"
 
-#include "../Util/EstimateElevation.h"
-
 template <class DataFacadeT> class GPXDescriptor : public BaseDescriptor<DataFacadeT>
 {
   private:
@@ -40,7 +38,7 @@ template <class DataFacadeT> class GPXDescriptor : public BaseDescriptor<DataFac
     DataFacadeT * facade;
 
 
-    void AddRoutePoint(const FixedPointCoordinate &coordinate, int elevation, std::vector<char> &output)
+    void AddRoutePoint(const FixedPointCoordinate &coordinate, std::vector<char> &output)
     {
         const std::string route_point_head = "<rtept lat=\"";
         const std::string route_point_middle = " lon=\"";
@@ -60,7 +58,7 @@ template <class DataFacadeT> class GPXDescriptor : public BaseDescriptor<DataFac
 
         if (config.elevation) {
             output.push_back('\"');
-            FixedPointCoordinate::convertInternalElevationToString(elevation, tmp);
+            FixedPointCoordinate::convertInternalElevationToString(coordinate.getEle(), tmp);
             output.insert(output.end(), route_point_ele.cbegin(), route_point_ele.cend());
             output.insert(output.end(), tmp.cbegin(), tmp.cend());
         }
@@ -68,15 +66,6 @@ template <class DataFacadeT> class GPXDescriptor : public BaseDescriptor<DataFac
         output.insert(output.end(), route_point_tail.begin(), route_point_tail.end());
     }
 
-    inline void AddRoutePoint(const PhantomNode &node, const RawRouteData &raw_route, std::vector<char> &output) {
-        int ele = config.elevation? EstimateElevation(node, raw_route.unpacked_path_segments, facade, true) : 0;
-        AddRoutePoint(node.location, ele, output);
-    }
-
-    inline void AddRoutePoint(const NodeID &node, const RawRouteData &raw_route, std::vector<char> &output) {
-        const FixedPointCoordinate coordinate = facade->GetCoordinateOfNode(node);
-        AddRoutePoint(coordinate, coordinate.getEle(), output);
-    }
 
   public:
     GPXDescriptor(DataFacadeT *facade) : facade(facade) {}
@@ -84,9 +73,7 @@ template <class DataFacadeT> class GPXDescriptor : public BaseDescriptor<DataFac
     void SetConfig(const DescriptorConfig &c) { config = c; }
 
     // TODO: reorder parameters
-    void Run(const RawRouteData &raw_route,
-             const PhantomNodes &phantom_node_list,
-             http::Reply &reply)
+    void Run(const RawRouteData &raw_route, http::Reply &reply)
     {
         std::string header("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
                            "<gpx creator=\"OSRM Routing Engine\" version=\"1.1\" "
@@ -103,20 +90,22 @@ template <class DataFacadeT> class GPXDescriptor : public BaseDescriptor<DataFac
                                  (!raw_route.unpacked_path_segments.front().empty());
         if (found_route)
         {
-            AddRoutePoint(phantom_node_list.source_phantom, raw_route, reply.content);
+            const auto &coordinates = raw_route.segment_end_coordinates;
+            AddRoutePoint(coordinates.front().source_phantom.location, reply.content);
 
             for (const std::vector<PathData> &path_data_vector : raw_route.unpacked_path_segments)
             {
                 for (const PathData &path_data : path_data_vector)
                 {
-                    AddRoutePoint(path_data.node, raw_route, reply.content);
+                    const FixedPointCoordinate coordinate = facade->GetCoordinateOfNode(path_data.node);
+                    AddRoutePoint(coordinate, reply.content);
                 }
             }
-            AddRoutePoint(phantom_node_list.target_phantom, raw_route, reply.content);
+            AddRoutePoint(coordinates.back().target_phantom.location, reply.content);
+
         }
         std::string footer("</rte></gpx>");
         reply.content.insert(reply.content.end(), footer.begin(), footer.end());
     }
 };
 #endif // GPX_DESCRIPTOR_H
-

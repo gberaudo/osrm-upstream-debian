@@ -25,18 +25,15 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#include "UUID.h"
+#include "FingerPrint.h"
 
 #include "OSRMException.h"
-#include "../typedefs.h"
 
-#include <boost/uuid/uuid_generators.hpp> // generators
-#include <boost/uuid/uuid_io.hpp>         // streaming operators etc.
+#include <boost/uuid/name_generator.hpp>
 
 #include <cstring>
 
 #include <algorithm>
-#include <iostream>
 #include <string>
 
 #cmakedefine01 HAS64BITS
@@ -45,7 +42,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #cmakedefine MD5GRAPH "${MD5GRAPH}"
 #cmakedefine MD5OBJECTS "${MD5OBJECTS}"
 
-UUID::UUID() : magic_number(1297240911)
+FingerPrint::FingerPrint() : magic_number(1297240911)
 {
     md5_prepare[32] = md5_tree[32] = md5_graph[32] = md5_objects[32] = '\0';
 
@@ -53,26 +50,26 @@ UUID::UUID() : magic_number(1297240911)
     std::string temp_string(__DATE__);
     temp_string += __TIME__;
 
-    std::copy(MD5PREPARE, MD5PREPARE + strlen(MD5PREPARE), md5_prepare);
+    std::memcpy(md5_prepare, MD5PREPARE, strlen(MD5PREPARE));
     temp_string += md5_prepare;
-    std::copy(MD5RTREE, MD5RTREE + 32, md5_tree);
+    std::memcpy(md5_tree, MD5RTREE, 32);
     temp_string += md5_tree;
-    std::copy(MD5GRAPH, MD5GRAPH + 32, md5_graph);
+    std::memcpy(md5_graph, MD5GRAPH, 32);
     temp_string += md5_graph;
-    std::copy(MD5OBJECTS, MD5OBJECTS + 32, md5_objects);
+    std::memcpy(md5_objects, MD5OBJECTS, 32);
     temp_string += md5_objects;
 
     named_uuid = gen(temp_string);
     has_64_bits = HAS64BITS;
 }
 
-UUID::~UUID() {}
+FingerPrint::~FingerPrint() {}
 
-const boost::uuids::uuid &UUID::GetUUID() const { return named_uuid; }
+const boost::uuids::uuid &FingerPrint::GetFingerPrint() const { return named_uuid; }
 
-bool UUID::IsMagicNumberOK() const { return 1297240911 == magic_number; }
+bool FingerPrint::IsMagicNumberOK() const { return 1297240911 == magic_number; }
 
-bool UUID::TestGraphUtil(const UUID &other) const
+bool FingerPrint::TestGraphUtil(const FingerPrint &other) const
 {
     if (!other.IsMagicNumberOK())
     {
@@ -81,7 +78,7 @@ bool UUID::TestGraphUtil(const UUID &other) const
     return std::equal(md5_graph, md5_graph + 32, other.md5_graph);
 }
 
-bool UUID::TestPrepare(const UUID &other) const
+bool FingerPrint::TestPrepare(const FingerPrint &other) const
 {
     if (!other.IsMagicNumberOK())
     {
@@ -90,7 +87,7 @@ bool UUID::TestPrepare(const UUID &other) const
     return std::equal(md5_prepare, md5_prepare + 32, other.md5_prepare);
 }
 
-bool UUID::TestRTree(const UUID &other) const
+bool FingerPrint::TestRTree(const FingerPrint &other) const
 {
     if (!other.IsMagicNumberOK())
     {
@@ -99,7 +96,7 @@ bool UUID::TestRTree(const UUID &other) const
     return std::equal(md5_tree, md5_tree + 32, other.md5_tree);
 }
 
-bool UUID::TestQueryObjects(const UUID &other) const
+bool FingerPrint::TestQueryObjects(const FingerPrint &other) const
 {
     if (!other.IsMagicNumberOK())
     {

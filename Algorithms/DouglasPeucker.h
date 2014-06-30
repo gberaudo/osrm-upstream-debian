@@ -29,6 +29,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define DOUGLASPEUCKER_H_
 
 #include <stack>
+#include <utility>
 #include <vector>
 
 /* This class object computes the bitvector of indicating generalized input
@@ -38,21 +39,16 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * bit indicating if the points is present in the generalization.
  * Note: points may also be pre-selected*/
 
-struct FixedPointCoordinate;
 struct SegmentInformation;
 
 class DouglasPeucker
 {
   private:
-    std::vector<double> douglas_peucker_thresholds;
+    std::vector<int> douglas_peucker_thresholds;
 
     typedef std::pair<unsigned, unsigned> GeometryRange;
     // Stack to simulate the recursion
     std::stack<GeometryRange> recursion_stack;
-
-    double ComputeDistance(const FixedPointCoordinate &point,
-                           const FixedPointCoordinate &segA,
-                           const FixedPointCoordinate &segB) const;
 
   public:
     DouglasPeucker();

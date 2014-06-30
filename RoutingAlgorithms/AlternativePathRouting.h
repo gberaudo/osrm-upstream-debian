@@ -76,12 +76,6 @@ template <class DataFacadeT> class AlternativeRouting : private BasicRoutingInte
 
     void operator()(const PhantomNodes &phantom_node_pair, RawRouteData &raw_route_data)
     {
-        if (phantom_node_pair.PhantomNodesHaveEqualLocation())
-        {
-            BOOST_ASSERT(false);
-            return;
-        }
-
         std::vector<NodeID> alternative_path;
         std::vector<NodeID> via_node_candidate_list;
         std::vector<SearchSpaceEdge> forward_search_space;
@@ -272,8 +266,8 @@ template <class DataFacadeT> class AlternativeRouting : private BasicRoutingInte
             int length_of_via_path = 0, sharing_of_via_path = 0;
             ComputeLengthAndSharingOfViaPath(
                 node, &length_of_via_path, &sharing_of_via_path, packed_shortest_path);
-            const int maximum_allowed_sharing =
-                upper_bound_to_shortest_path_distance * VIAPATH_GAMMA;
+            const int maximum_allowed_sharing = static_cast<int>(
+                upper_bound_to_shortest_path_distance * VIAPATH_GAMMA);
             if (sharing_of_via_path <= maximum_allowed_sharing &&
                 length_of_via_path <= upper_bound_to_shortest_path_distance * (1 + VIAPATH_EPSILON))
             {
@@ -308,10 +302,10 @@ template <class DataFacadeT> class AlternativeRouting : private BasicRoutingInte
         {
             BOOST_ASSERT(!packed_shortest_path.empty());
             raw_route_data.unpacked_path_segments.resize(1);
-            raw_route_data.source_traversed_in_reverse =
-                (packed_shortest_path.front() != phantom_node_pair.source_phantom.forward_node_id);
-            raw_route_data.target_traversed_in_reverse =
-                (packed_shortest_path.back() != phantom_node_pair.target_phantom.forward_node_id);
+            raw_route_data.source_traversed_in_reverse.push_back(
+                (packed_shortest_path.front() != phantom_node_pair.source_phantom.forward_node_id));
+            raw_route_data.target_traversed_in_reverse.push_back(
+                (packed_shortest_path.back() != phantom_node_pair.target_phantom.forward_node_id));
 
             super::UnpackPath(
                 // -- packed input
@@ -335,16 +329,18 @@ template <class DataFacadeT> class AlternativeRouting : private BasicRoutingInte
                                         v_t_middle,
                                         packed_alternate_path);
 
-            raw_route_data.source_traversed_in_reverse =
-                (packed_alternate_path.front() != phantom_node_pair.source_phantom.forward_node_id);
-            raw_route_data.target_traversed_in_reverse =
-                (packed_alternate_path.back() != phantom_node_pair.target_phantom.forward_node_id);
+            raw_route_data.alt_source_traversed_in_reverse.push_back(
+                (packed_alternate_path.front() != phantom_node_pair.source_phantom.forward_node_id));
+            raw_route_data.alt_target_traversed_in_reverse.push_back(
+                (packed_alternate_path.back() != phantom_node_pair.target_phantom.forward_node_id));
 
             // unpack the alternate path
             super::UnpackPath(
                 packed_alternate_path, phantom_node_pair, raw_route_data.unpacked_alternative);
 
             raw_route_data.alternative_path_length = length_of_via_path;
+        } else {
+            BOOST_ASSERT(raw_route_data.alternative_path_length == INVALID_EDGE_WEIGHT);
         }
     }
 
@@ -580,7 +576,7 @@ template <class DataFacadeT> class AlternativeRouting : private BasicRoutingInte
     {
         const NodeID node = forward_heap.DeleteMin();
         const int distance = forward_heap.GetKey(node);
-        const int scaled_distance = distance / (1. + VIAPATH_EPSILON);
+        const int scaled_distance = static_cast<int>(distance / (1. + VIAPATH_EPSILON));
         if ((INVALID_EDGE_WEIGHT != *upper_bound_to_shortest_path_distance) &&
             (scaled_distance > *upper_bound_to_shortest_path_distance))
         {
@@ -642,7 +638,7 @@ template <class DataFacadeT> class AlternativeRouting : private BasicRoutingInte
                                             QueryHeap &new_forward_heap,
                                             QueryHeap &new_reverse_heap,
                                             const RankedCandidateNode &candidate,
-                                            const int lengthOfShortestPath,
+                                            const int length_of_shortest_path,
                                             int *length_of_via_path,
                                             NodeID *s_v_middle,
                                             NodeID *v_t_middle) const
@@ -707,12 +703,12 @@ template <class DataFacadeT> class AlternativeRouting : private BasicRoutingInte
         {
             return false;
         }
-        const int T_threshold = VIAPATH_EPSILON * lengthOfShortestPath;
+        const int T_threshold = static_cast<int>(VIAPATH_EPSILON * length_of_shortest_path);
         int unpacked_until_distance = 0;
 
         std::stack<SearchSpaceEdge> unpack_stack;
         // Traverse path s-->v
-        for (unsigned i = packed_s_v_path.size() - 1; (i > 0) && unpack_stack.empty(); --i)
+        for (std::size_t i = packed_s_v_path.size() - 1; (i > 0) && unpack_stack.empty(); --i)
         {
             const EdgeID current_edge_id =
                 facade->FindEdgeInEitherDirection(packed_s_v_path[i - 1], packed_s_v_path[i]);
@@ -773,11 +769,12 @@ template <class DataFacadeT> class AlternativeRouting : private BasicRoutingInte
         int t_test_path_length = unpacked_until_distance;
         unpacked_until_distance = 0;
         // Traverse path s-->v
-        for (unsigned i = 0, packed_path_length = packed_v_t_path.size() - 1;
+        BOOST_ASSERT(!packed_v_t_path.empty());
+        for (unsigned i = 0, packed_path_length = static_cast<unsigned>(packed_v_t_path.size() - 1);
              (i < packed_path_length) && unpack_stack.empty();
              ++i)
         {
-            EdgeID edgeID =
+            const EdgeID edgeID =
                 facade->FindEdgeInEitherDirection(packed_v_t_path[i], packed_v_t_path[i + 1]);
             int length_of_current_edge = facade->GetEdgeData(edgeID).distance;
             if (length_of_current_edge + unpacked_until_distance >= T_threshold)
@@ -842,7 +839,7 @@ template <class DataFacadeT> class AlternativeRouting : private BasicRoutingInte
 
         forward_heap3.Insert(s_P, 0, s_P);
         reverse_heap3.Insert(t_P, 0, t_P);
-        // exploration from s and t until deletemin/(1+epsilon) > _lengthOfShortestPath
+        // exploration from s and t until deletemin/(1+epsilon) > _lengt_oO_sShortest_path
         while ((forward_heap3.Size() + reverse_heap3.Size()) > 0)
         {
             if (!forward_heap3.Empty())

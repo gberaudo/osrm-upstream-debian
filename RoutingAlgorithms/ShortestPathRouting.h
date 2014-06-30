@@ -51,15 +51,6 @@ template <class DataFacadeT> class ShortestPathRouting : public BasicRoutingInte
     void operator()(const std::vector<PhantomNodes> &phantom_nodes_vector,
                     RawRouteData &raw_route_data) const
     {
-        if(std::any_of(begin(phantom_nodes_vector),
-                        end(phantom_nodes_vector),
-                        [](PhantomNodes phantom_node_pair)
-                        { return phantom_node_pair.AtLeastOnePhantomNodeIsInvalid(); }))
-        {
-            BOOST_ASSERT(false);
-            return;
-        }
-
         int distance1 = 0;
         int distance2 = 0;
         bool search_from_1st_node = true;
@@ -176,6 +167,9 @@ template <class DataFacadeT> class ShortestPathRouting : public BasicRoutingInte
                 raw_route_data.alternative_path_length = INVALID_EDGE_WEIGHT;
                 return;
             }
+
+            search_from_1st_node = true;
+            search_from_2nd_node = true;
             if (SPECIAL_NODEID == middle1)
             {
                 search_from_1st_node = false;
@@ -244,7 +238,7 @@ template <class DataFacadeT> class ShortestPathRouting : public BasicRoutingInte
                 }
             }
 
-            // remove one path if both legs end at the same segment
+            // remove the shorter path if both legs end at the same segment
             if (0 < current_leg)
             {
                 const NodeID start_id_of_leg1 = temporary_packed_leg1.front();
@@ -298,13 +292,6 @@ template <class DataFacadeT> class ShortestPathRouting : public BasicRoutingInte
         }
         raw_route_data.unpacked_path_segments.resize(packed_legs1.size());
 
-        raw_route_data.source_traversed_in_reverse =
-            (packed_legs1.front().front() !=
-             phantom_nodes_vector.front().source_phantom.forward_node_id);
-        raw_route_data.target_traversed_in_reverse =
-            (packed_legs1.back().back() !=
-             phantom_nodes_vector.back().target_phantom.forward_node_id);
-
         for (unsigned i = 0; i < packed_legs1.size(); ++i)
         {
             BOOST_ASSERT(!phantom_nodes_vector.empty());
@@ -318,6 +305,11 @@ template <class DataFacadeT> class ShortestPathRouting : public BasicRoutingInte
                 unpack_phantom_node_pair,
                 // -- unpacked output
                 raw_route_data.unpacked_path_segments[i]);
+
+            raw_route_data.source_traversed_in_reverse.push_back(
+            (packed_legs1[i].front() != phantom_nodes_vector[i].source_phantom.forward_node_id));
+            raw_route_data.target_traversed_in_reverse.push_back(
+            (packed_legs1[i].back() != phantom_nodes_vector[i].target_phantom.forward_node_id));
         }
         raw_route_data.shortest_path_length = std::min(distance1, distance2);
     }

@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2013, Project OSRM, Dennis Luxen, others
+Copyright (c) 2014, Project OSRM, Dennis Luxen, others
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -25,17 +25,40 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef OPENMP_WRAPPER_H
-#define OPENMP_WRAPPER_H
+#include "ImportNode.h"
 
-#ifdef _OPENMP
-extern "C" {
-#include <omp.h>
+#include <limits>
+
+ExternalMemoryNode::ExternalMemoryNode(
+    int lat, int lon, unsigned int node_id, bool bollard, bool traffic_light)
+    : NodeInfo(lat, lon, node_id), bollard(bollard), trafficLight(traffic_light)
+{
 }
-#else
-inline int omp_get_num_procs() { return 1; }
-inline int omp_get_max_threads() { return 1; }
-inline int omp_get_thread_num() { return 0; }
-inline void omp_set_num_threads(int i) {}
-#endif // _OPENMP
-#endif // OPENMP_WRAPPER_H
+
+ExternalMemoryNode::ExternalMemoryNode() : bollard(false), trafficLight(false)
+{
+}
+
+ExternalMemoryNode ExternalMemoryNode::min_value()
+{
+    return ExternalMemoryNode(0, 0, 0, false, false);
+}
+
+ExternalMemoryNode ExternalMemoryNode::max_value()
+{
+    return ExternalMemoryNode(std::numeric_limits<int>::max(),
+                              std::numeric_limits<int>::max(),
+                              std::numeric_limits<unsigned>::max(),
+                              false,
+                              false);
+}
+
+void ImportNode::Clear()
+{
+    keyVals.Clear();
+    lat = 0;
+    lon = 0;
+    node_id = 0;
+    bollard = false;
+    trafficLight = false;
+}
