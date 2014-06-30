@@ -1,3 +1,11 @@
+osrm (0.4.1ele3-2~c2c+1) wheezy; urgency=low
+
+  * Deactivate debian/patches/boost-date_time.patch
+  * Depends on libtbb-dev
+  * Deactivate assert
+
+ -- Frederic Junod <frederic.junod@camptocamp.com>  Mon, 30 Jun 2014 16:31:13 +0200
+
 osrm (0.4.1ele3-1~c2c+1) wheezy; urgency=low
 
   * Activate elevation
