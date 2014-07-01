@@ -1,3 +1,10 @@
+osrm (0.4.1ele4-2~c2c+1) wheezy; urgency=low
+
+  * Imported Upstream version 0.4.1ele4
+  * Remove debian/patches/LoadStreetNames_assert.patch
+
+ -- Frederic Junod <frederic.junod@camptocamp.com>  Tue, 01 Jul 2014 11:22:40 +0200
+
 osrm (0.4.1ele3-2~c2c+1) wheezy; urgency=low
 
   * Deactivate debian/patches/boost-date_time.patch
