@@ -1,3 +1,9 @@
+osrm (0.4.1ele5-1~c2c+1) wheezy; urgency=low
+
+  * Imported Upstream version 0.4.1ele5
+
+ -- Guillaume Beraudo <guillaume.beraudo@camptocamp.com>  Thu, 11 Sep 2014 16:41:12 +0200
+
 osrm (0.4.1ele4-2~c2c+2) wheezy; urgency=low
 
   * Use RelWithDebInfo inspite of Debug.
