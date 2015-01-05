@@ -1,3 +1,9 @@
+osrm (4.4.0-1) wheezy; urgency=low
+
+  * Imported Upstream version 4.4.0
+
+ -- Guillaume Beraudo <guillaume.beraudo@camptocamp.com>  Mon, 05 Jan 2015 16:47:24 +0100
+
 osrm (0.4.1ele5-1~c2c+1) wheezy; urgency=low
 
   * Imported Upstream version 0.4.1ele5
