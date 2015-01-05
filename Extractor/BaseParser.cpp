@@ -32,7 +32,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../DataStructures/ImportNode.h"
 #include "../Util/LuaUtil.h"
 #include "../Util/OSRMException.h"
-#include "../Util/SimpleLogger.h"
+#include "../Util/simple_logger.hpp"
 
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/regex.hpp>
@@ -40,12 +40,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <boost/regex.hpp>
 
 BaseParser::BaseParser(ExtractorCallbacks *extractor_callbacks,
-                       ScriptingEnvironment &scripting_environment,
-                       const bool use_elevation)
+                       ScriptingEnvironment &scripting_environment)
     : extractor_callbacks(extractor_callbacks),
       lua_state(scripting_environment.getLuaState()),
-      scripting_environment(scripting_environment), use_turn_restrictions(true),
-      use_elevation(use_elevation)
+      scripting_environment(scripting_environment), use_turn_restrictions(true)
 {
     ReadUseRestrictionsSetting();
     ReadRestrictionExceptions();
@@ -55,12 +53,13 @@ void BaseParser::ReadUseRestrictionsSetting()
 {
     if (0 != luaL_dostring(lua_state, "return use_turn_restrictions\n"))
     {
-        throw OSRMException("ERROR occured in scripting block");
+        use_turn_restrictions = false;
     }
-    if (lua_isboolean(lua_state, -1))
+    else if (lua_isboolean(lua_state, -1))
     {
         use_turn_restrictions = lua_toboolean(lua_state, -1);
     }
+
     if (use_turn_restrictions)
     {
         SimpleLogger().Write() << "Using turn restrictions";

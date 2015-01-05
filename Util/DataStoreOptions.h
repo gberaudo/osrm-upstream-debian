@@ -32,7 +32,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "GitDescription.h"
 #include "IniFileUtil.h"
 #include "OSRMException.h"
-#include "SimpleLogger.h"
+#include "simple_logger.hpp"
 
 #include <osrm/ServerPaths.h>
 
@@ -43,12 +43,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 // generate boost::program_options object for the routing part
-inline bool GenerateDataStoreOptions(const int argc, const char *argv[], ServerPaths &paths, bool &springclean, bool &use_elevation)
+bool GenerateDataStoreOptions(const int argc, const char *argv[], ServerPaths &paths)
 {
     // declare a group of options that will be allowed only on command line
     boost::program_options::options_description generic_options("Options");
-    generic_options.add_options()("version,v", "Show version")("help,h", "Show this help message")(
-        "config,c",
+    generic_options.add_options()("version,v", "Show version")("help,h", "Show this help message")
+        ("springclean,s", "Remove all regions in shared memory")("config,c",
         boost::program_options::value<boost::filesystem::path>(&paths["config"])
             ->default_value("server.ini"),
         "Path to a configuration file");
@@ -57,9 +57,6 @@ inline bool GenerateDataStoreOptions(const int argc, const char *argv[], ServerP
     // as well as in a config file
     boost::program_options::options_description config_options("Configuration");
     config_options.add_options()(
-        "elevation,e",
-        boost::program_options::value<bool>(&use_elevation)->implicit_value(true),
-           "Process elevation values from input file nodes")(
         "hsgrdata",
         boost::program_options::value<boost::filesystem::path>(&paths["hsgrdata"]),
         ".hsgr file")("nodesdata",
@@ -125,11 +122,6 @@ inline bool GenerateDataStoreOptions(const int argc, const char *argv[], ServerP
         return false;
     }
 
-    if (option_variables.count("springclean"))
-    {
-        springclean = true;
-        return true;
-    }
     boost::program_options::notify(option_variables);
 
     const bool parameter_present = (paths.find("hsgrdata") != paths.end() &&

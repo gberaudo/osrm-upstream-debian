@@ -1,14 +1,13 @@
 When /^I route I should get$/ do |table|
-  use_ele = elevation_data_enabled and query_parameter['elevation']
   reprocess
   actual = []
-  OSRMBackgroundLauncher.new("#{@osm_file}.osrm", use_ele) do
+  OSRMLoader.load(self,"#{prepared_file}.osrm") do
     table.hashes.each_with_index do |row,ri|
       if row['request']
         got = {'request' => row['request'] }
         response = request_url row['request']
       else
-        params = query_parameter
+        params = @query_params
         waypoints = []
         if row['from'] and row['to']
           node = find_node_by_name(row['from'])
@@ -79,17 +78,8 @@ When /^I route I should get$/ do |table|
           got['end'] = instructions ? json['route_summary']['end_point'] : nil
         end
         if table.headers.include? 'geometry'
-          if !params.has_key?('compression') or params['compression'] # default is to compress
-            # could decode the polyline with appropriate ruby support
             got['geometry'] = json['route_geometry']
-          else
-            got['geometry'] = json['route_geometry'].join(" ")
-          end
         end
-        if table.headers.include? 'elevation'
-          got['elevation'] = json['route_geometry'].collect{|s| s.split(",").last }.join(" ")
-        end
-
         if table.headers.include? 'route'
           got['route'] = (instructions || '').strip
           if table.headers.include?('distance')
@@ -114,22 +104,22 @@ When /^I route I should get$/ do |table|
             end
           end
           if table.headers.include? 'bearing'
-            got['bearing'] = bearings
+            got['bearing'] = instructions ? bearings : ''
           end
           if table.headers.include? 'compass'
-            got['compass'] = compasses
+            got['compass'] = instructions ? compasses : ''
           end
           if table.headers.include? 'turns'
-            got['turns'] = turns
+            got['turns'] = instructions ? turns : ''
           end
           if table.headers.include? 'modes'
-            got['modes'] = modes
+            got['modes'] = instructions ? modes : ''
           end
           if table.headers.include? 'times'
-            got['times'] = times
+            got['times'] = instructions ? times : ''
           end
           if table.headers.include? 'distances'
-            got['distances'] = distances
+            got['distances'] = instructions ? distances : ''
           end
         end
       end

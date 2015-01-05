@@ -27,12 +27,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "../typedefs.h"
 #include "../Algorithms/StronglyConnectedComponents.h"
-#include "../DataStructures/DynamicGraph.h"
-#include "../DataStructures/QueryEdge.h"
-#include "../DataStructures/TurnInstructions.h"
 #include "../Util/GraphLoader.h"
 #include "../Util/OSRMException.h"
-#include "../Util/SimpleLogger.h"
+#include "../Util/simple_logger.hpp"
 #include "../Util/FingerPrint.h"
 
 #include <fstream>
@@ -40,31 +37,31 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-typedef QueryEdge::EdgeData EdgeData;
-typedef DynamicGraph<EdgeData>::InputEdge InputEdge;
-
-std::vector<NodeInfo> internal_to_external_node_map;
+std::vector<NodeInfo> coordinate_list;
 std::vector<TurnRestriction> restrictions_vector;
-std::vector<NodeID> bollard_node_IDs_vector;
-std::vector<NodeID> traffic_light_node_IDs_vector;
+std::vector<NodeID> bollard_ID_list;
+std::vector<NodeID> trafficlight_ID_list;
 
 int main(int argc, char *argv[])
 {
     LogPolicy::GetInstance().Unmute();
-    if (argc < 3)
-    {
-        SimpleLogger().Write(logWARNING) << "usage:\n" << argv[0] << " <osrm> <osrm.restrictions>";
-        return -1;
-    }
-
     try
     {
+        // enable logging
+        if (argc < 3)
+        {
+            SimpleLogger().Write(logWARNING) << "usage:\n" << argv[0]
+                                             << " <osrm> <osrm.restrictions>";
+            return -1;
+        }
+
         SimpleLogger().Write() << "Using restrictions from file: " << argv[2];
         std::ifstream restriction_ifstream(argv[2], std::ios::binary);
         const FingerPrint fingerprint_orig;
         FingerPrint fingerprint_loaded;
         restriction_ifstream.read((char *)&fingerprint_loaded, sizeof(FingerPrint));
 
+        // check fingerprint and warn if necessary
         if (!fingerprint_loaded.TestGraphUtil(fingerprint_orig))
         {
             SimpleLogger().Write(logWARNING) << argv[2] << " was prepared with a different build. "
@@ -75,55 +72,52 @@ int main(int argc, char *argv[])
         {
             throw OSRMException("Could not access <osrm-restrictions> files");
         }
-        uint32_t usable_restriction_count = 0;
-        restriction_ifstream.read((char *)&usable_restriction_count, sizeof(uint32_t));
-        restrictions_vector.resize(usable_restriction_count);
+        uint32_t usable_restrictions = 0;
+        restriction_ifstream.read((char *)&usable_restrictions, sizeof(uint32_t));
+        restrictions_vector.resize(usable_restrictions);
 
-        if (usable_restriction_count>0)
+        // load restrictions
+        if (usable_restrictions > 0)
         {
             restriction_ifstream.read((char *)&(restrictions_vector[0]),
-                                 usable_restriction_count * sizeof(TurnRestriction));
+                                      usable_restrictions * sizeof(TurnRestriction));
         }
         restriction_ifstream.close();
 
-        std::ifstream input_stream;
-        input_stream.open(argv[1], std::ifstream::in | std::ifstream::binary);
-
+        std::ifstream input_stream(argv[1], std::ifstream::in | std::ifstream::binary);
         if (!input_stream.is_open())
         {
             throw OSRMException("Cannot open osrm file");
         }
 
+        // load graph data
         std::vector<ImportEdge> edge_list;
         const NodeID number_of_nodes = readBinaryOSRMGraphFromStream(input_stream,
                                                                      edge_list,
-                                                                     bollard_node_IDs_vector,
-                                                                     traffic_light_node_IDs_vector,
-                                                                     &internal_to_external_node_map,
+                                                                     bollard_ID_list,
+                                                                     trafficlight_ID_list,
+                                                                     &coordinate_list,
                                                                      restrictions_vector);
         input_stream.close();
 
-        BOOST_ASSERT_MSG(restrictions_vector.size() == usable_restriction_count,
+        BOOST_ASSERT_MSG(restrictions_vector.size() == usable_restrictions,
                          "size of restrictions_vector changed");
 
         SimpleLogger().Write() << restrictions_vector.size() << " restrictions, "
-                               << bollard_node_IDs_vector.size() << " bollard nodes, "
-                               << traffic_light_node_IDs_vector.size() << " traffic lights";
+                               << bollard_ID_list.size() << " bollard nodes, "
+                               << trafficlight_ID_list.size() << " traffic lights";
 
-        /***
-         * Building an edge-expanded graph from node-based input an turn
-         * restrictions
-         */
-
+        // Building an edge-expanded graph from node-based input an turn
+        // restrictions
         SimpleLogger().Write() << "Starting SCC graph traversal";
-        std::shared_ptr<TarjanSCC> tarjan =
-            std::make_shared<TarjanSCC>(number_of_nodes,
-                                        edge_list,
-                                        bollard_node_IDs_vector,
-                                        traffic_light_node_IDs_vector,
-                                        restrictions_vector,
-                                        internal_to_external_node_map);
-        std::vector<ImportEdge>().swap(edge_list);
+        std::shared_ptr<TarjanSCC> tarjan = std::make_shared<TarjanSCC>(number_of_nodes,
+                                                                        edge_list,
+                                                                        bollard_ID_list,
+                                                                        trafficlight_ID_list,
+                                                                        restrictions_vector,
+                                                                        coordinate_list);
+        edge_list.clear();
+        edge_list.shrink_to_fit();
 
         tarjan->Run();
         SimpleLogger().Write() << "finished component analysis";

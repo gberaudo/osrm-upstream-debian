@@ -28,54 +28,27 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef FIXED_POINT_COORDINATE_H_
 #define FIXED_POINT_COORDINATE_H_
 
-#include <functional>
 #include <iosfwd> //for std::ostream
-#include <limits>
+#include <string>
+#include <type_traits>
 
-#include "OSRM_config.h"
+constexpr float COORDINATE_PRECISION = 1000000.f;
 
-const float COORDINATE_PRECISION = 1000000.f;
-
-struct _Point2D
+struct FixedPointCoordinate
 {
     int lat;
     int lon;
-    constexpr static int MIN = std::numeric_limits<int>::min();
-    constexpr static int MAX = std::numeric_limits<int>::max();
 
-    _Point2D() : lat(MIN), lon(MIN) {};
-    _Point2D(int lat, int lon, int ele) : lat(lat), lon(lon) {}
-
-    inline int getEle() const { return MIN; }
-    inline void setEle(int ele) {}
-};
-
-struct _Point3D
-{
-    int lat;
-    int lon;
-    static constexpr int MIN = std::numeric_limits<int>::min();
-    static constexpr int MAX = std::numeric_limits<int>::max();
-
-    _Point3D() : lat(MIN), lon(MIN) {};
-    _Point3D(int lat, int lon, int ele) : lat(lat), lon(lon), ele(ele) {}
-
-    inline int getEle() const { return ele; }
-    inline void setEle(int ele) { this->ele = ele; }
-private:
-    int ele;
-};
-
-#ifdef OSRM_HAS_ELEVATION
-typedef _Point3D Coordinate;
-#else
-typedef _Point2D Coordinate;
-#endif
-
-struct FixedPointCoordinate : public Coordinate
-{
     FixedPointCoordinate();
-    explicit FixedPointCoordinate(int lat, int lon, int ele = MIN);
+    FixedPointCoordinate(int lat, int lon);
+
+    template<class T>
+    FixedPointCoordinate(const T &coordinate) : lat(coordinate.lat), lon(coordinate.lon)
+    {
+        static_assert(std::is_same<decltype(lat), decltype(coordinate.lat)>::value, "coordinate types incompatible");
+        static_assert(std::is_same<decltype(lon), decltype(coordinate.lon)>::value, "coordinate types incompatible");
+    }
+
     void Reset();
     bool isSet() const;
     bool isValid() const;
@@ -90,10 +63,8 @@ struct FixedPointCoordinate : public Coordinate
     static float ApproximateEuclideanDistance(const FixedPointCoordinate &first_coordinate,
                                               const FixedPointCoordinate &second_coordinate);
 
-    static float ApproximateEuclideanDistance(const int lat1,
-                                              const int lon1,
-                                              const int lat2,
-                                              const int lon2);
+    static float
+    ApproximateEuclideanDistance(const int lat1, const int lon1, const int lat2, const int lon2);
 
     static float ApproximateSquaredEuclideanDistance(const FixedPointCoordinate &first_coordinate,
                                                      const FixedPointCoordinate &second_coordinate);
@@ -102,8 +73,6 @@ struct FixedPointCoordinate : public Coordinate
 
     static void convertInternalCoordinateToString(const FixedPointCoordinate &coordinate,
                                                   std::string &output);
-
-    static void convertInternalElevationToString(const int value, std::string &output);
 
     static void convertInternalReversedCoordinateToString(const FixedPointCoordinate &coordinate,
                                                           std::string &output);
@@ -118,10 +87,10 @@ struct FixedPointCoordinate : public Coordinate
                                               FixedPointCoordinate &nearest_location,
                                               float &ratio);
 
-    static int OrderedPerpendicularDistanceApproximation(const FixedPointCoordinate& segment_source,
-                                                         const FixedPointCoordinate& segment_target,
-                                                         const FixedPointCoordinate& query_location);
-
+    static int
+    OrderedPerpendicularDistanceApproximation(const FixedPointCoordinate &segment_source,
+                                              const FixedPointCoordinate &segment_target,
+                                              const FixedPointCoordinate &query_location);
 
     static float GetBearing(const FixedPointCoordinate &A, const FixedPointCoordinate &B);
 

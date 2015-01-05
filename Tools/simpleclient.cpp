@@ -28,7 +28,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../Library/OSRM.h"
 #include "../Util/GitDescription.h"
 #include "../Util/ProgramOptions.h"
-#include "../Util/SimpleLogger.h"
+#include "../Util/simple_logger.hpp"
 
 #include <osrm/Reply.h>
 #include <osrm/RouteParameters.h>
@@ -66,7 +66,7 @@ int main(int argc, const char *argv[])
     {
         std::string ip_address;
         int ip_port, requested_thread_num;
-        bool use_shared_memory = false, trial = false, use_elevation = false;
+        bool use_shared_memory = false, trial = false;
         ServerPaths server_paths;
         if (!GenerateServerProgramOptions(argc,
                                           argv,
@@ -75,14 +75,12 @@ int main(int argc, const char *argv[])
                                           ip_port,
                                           requested_thread_num,
                                           use_shared_memory,
-                                          trial,
-                                          use_elevation))
+                                          trial))
         {
             return 0;
         }
 
-        SimpleLogger().Write() << "starting up engines, " << g_GIT_DESCRIPTION << ", "
-                               << "compiled at " << __DATE__ << ", " __TIME__;
+        SimpleLogger().Write() << "starting up engines, " << g_GIT_DESCRIPTION;
 
         OSRM routing_machine(server_paths, use_shared_memory);
 

@@ -32,9 +32,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <boost/fusion/include/at_c.hpp>
 
 RouteParameters::RouteParameters()
-    : zoom_level(18), print_instructions(false), print_elevation(false),
-      alternate_route(true), geometry(true),
-      compression(true), deprecatedAPI(false), check_sum(-1)
+    : zoom_level(18), print_instructions(false), alternate_route(true), geometry(true),
+      compression(true), deprecatedAPI(false), uturn_default(false), check_sum(-1), num_results(1)
 {
 }
 
@@ -46,15 +45,41 @@ void RouteParameters::setZoomLevel(const short level)
     }
 }
 
+void RouteParameters::setNumberOfResults(const short number)
+{
+    if (number > 0 && number <= 100)
+    {
+        num_results = number;
+    }
+}
+
 void RouteParameters::setAlternateRouteFlag(const bool flag) { alternate_route = flag; }
+
+void RouteParameters::setUTurn(const bool flag)
+{
+    uturns.resize(coordinates.size(), uturn_default);
+    if (!uturns.empty())
+    {
+        uturns.back() = flag;
+    }
+}
+
+void RouteParameters::setAllUTurns(const bool flag)
+{
+    // if the flag flips the default, then we erase everything.
+    if (flag)
+    {
+        uturn_default = flag;
+        uturns.clear();
+        uturns.resize(coordinates.size(), uturn_default);
+    }
+}
 
 void RouteParameters::setDeprecatedAPIFlag(const std::string &) { deprecatedAPI = true; }
 
 void RouteParameters::setChecksum(const unsigned sum) { check_sum = sum; }
 
 void RouteParameters::setInstructionFlag(const bool flag) { print_instructions = flag; }
-
-void RouteParameters::setElevationFlag(const bool ele) { print_elevation = ele; }
 
 void RouteParameters::setService(const std::string &service_string) { service = service_string; }
 

@@ -34,7 +34,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../DataStructures/ImportNode.h"
 #include "../DataStructures/InputReaderFactory.h"
 #include "../DataStructures/Restriction.h"
-#include "../Util/SimpleLogger.h"
+#include "../Util/cast.hpp"
+#include "../Util/simple_logger.hpp"
 #include "../Util/StringUtil.h"
 #include "../typedefs.h"
 
@@ -42,9 +43,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 XMLParser::XMLParser(const char *filename,
                      ExtractorCallbacks *extractor_callbacks,
-                     ScriptingEnvironment &scripting_environment,
-                     const bool use_elevation)
-    : BaseParser(extractor_callbacks, scripting_environment, use_elevation)
+                     ScriptingEnvironment &scripting_environment)
+    : BaseParser(extractor_callbacks, scripting_environment)
 {
     inputReader = inputReaderFactory(filename);
 }
@@ -72,7 +72,7 @@ bool XMLParser::Parse()
         {
             ImportNode current_node = ReadXMLNode();
             ParseNodeInLua(current_node, lua_state);
-            extractor_callbacks->ProcessNode(current_node, use_elevation);
+            extractor_callbacks->ProcessNode(current_node);
         }
 
         if (xmlStrEqual(currentName, (const xmlChar *)"way") == 1)
@@ -169,17 +169,17 @@ InputRestrictionContainer XMLParser::ReadXMLRestriction()
                 if (xmlStrEqual(role, (const xmlChar *)"to") &&
                     xmlStrEqual(type, (const xmlChar *)"way"))
                 {
-                    restriction.toWay = StringToUint((const char *)ref);
+                    restriction.toWay = cast::string_to_uint((const char *)ref);
                 }
                 if (xmlStrEqual(role, (const xmlChar *)"from") &&
                     xmlStrEqual(type, (const xmlChar *)"way"))
                 {
-                    restriction.fromWay = StringToUint((const char *)ref);
+                    restriction.fromWay = cast::string_to_uint((const char *)ref);
                 }
                 if (xmlStrEqual(role, (const xmlChar *)"via") &&
                     xmlStrEqual(type, (const xmlChar *)"node"))
                 {
-                    restriction.restriction.viaNode = StringToUint((const char *)ref);
+                    restriction.restriction.viaNode = cast::string_to_uint((const char *)ref);
                 }
 
                 if (nullptr != type)
@@ -231,9 +231,9 @@ ExtractionWay XMLParser::ReadXMLWay()
         if (depth == child_depth && child_type == 15 &&
             xmlStrEqual(child_name, (const xmlChar *)"way") == 1)
         {
-            xmlChar *node_id = xmlTextReaderGetAttribute(inputReader, (const xmlChar *)"id");
-            way.id = StringToUint((char *)node_id);
-            xmlFree(node_id);
+            xmlChar *way_id = xmlTextReaderGetAttribute(inputReader, (const xmlChar *)"id");
+            way.id = cast::string_to_uint((char *)way_id);
+            xmlFree(way_id);
             xmlFree(child_name);
             break;
         }
@@ -266,7 +266,7 @@ ExtractionWay XMLParser::ReadXMLWay()
             xmlChar *ref = xmlTextReaderGetAttribute(inputReader, (const xmlChar *)"ref");
             if (ref != nullptr)
             {
-                way.path.push_back(StringToUint((const char *)ref));
+                way.path.push_back(cast::string_to_uint((const char *)ref));
                 xmlFree(ref);
             }
         }
@@ -282,19 +282,19 @@ ImportNode XMLParser::ReadXMLNode()
     xmlChar *attribute = xmlTextReaderGetAttribute(inputReader, (const xmlChar *)"lat");
     if (attribute != nullptr)
     {
-        node.lat = static_cast<int>(COORDINATE_PRECISION * StringToDouble((const char *)attribute));
+        node.lat = static_cast<int>(COORDINATE_PRECISION * cast::string_to_double((const char *)attribute));
         xmlFree(attribute);
     }
     attribute = xmlTextReaderGetAttribute(inputReader, (const xmlChar *)"lon");
     if (attribute != nullptr)
     {
-        node.lon = static_cast<int>(COORDINATE_PRECISION * StringToDouble((const char *)attribute));
+        node.lon = static_cast<int>(COORDINATE_PRECISION * cast::string_to_double((const char *)attribute));
         xmlFree(attribute);
     }
     attribute = xmlTextReaderGetAttribute(inputReader, (const xmlChar *)"id");
     if (attribute != nullptr)
     {
-        node.node_id = StringToUint((const char *)attribute);
+        node.node_id = cast::string_to_uint((const char *)attribute);
         xmlFree(attribute);
     }
 
