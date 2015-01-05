@@ -39,22 +39,24 @@ struct APIGrammar : qi::grammar<Iterator>
 {
     explicit APIGrammar(HandlerT * h) : APIGrammar::base_type(api_call), handler(h)
     {
-        api_call = qi::lit('/') >> string[boost::bind(&HandlerT::setService, handler, ::_1)] >> *(query);
-        query    = ('?') >> (+(zoom | output | jsonp | checksum | location | hint | cmp | language | instruction | elevation | geometry | alt_route | old_API) ) ;
+        api_call = qi::lit('/') >> string[boost::bind(&HandlerT::setService, handler, ::_1)] >> *(query) >> -(uturns);
+        query    = ('?') >> (+(zoom | output | jsonp | checksum | location | hint | u | cmp | language | instruction | geometry | alt_route | old_API | num_results) ) ;
 
         zoom        = (-qi::lit('&')) >> qi::lit('z')            >> '=' >> qi::short_[boost::bind(&HandlerT::setZoomLevel, handler, ::_1)];
         output      = (-qi::lit('&')) >> qi::lit("output")       >> '=' >> string[boost::bind(&HandlerT::setOutputFormat, handler, ::_1)];
         jsonp       = (-qi::lit('&')) >> qi::lit("jsonp")        >> '=' >> stringwithPercent[boost::bind(&HandlerT::setJSONpParameter, handler, ::_1)];
         checksum    = (-qi::lit('&')) >> qi::lit("checksum")     >> '=' >> qi::uint_[boost::bind(&HandlerT::setChecksum, handler, ::_1)];
         instruction = (-qi::lit('&')) >> qi::lit("instructions") >> '=' >> qi::bool_[boost::bind(&HandlerT::setInstructionFlag, handler, ::_1)];
-        elevation   = (-qi::lit('&')) >> qi::lit("elevation")    >> '=' >> qi::bool_[boost::bind(&HandlerT::setElevationFlag, handler, ::_1)];
         geometry    = (-qi::lit('&')) >> qi::lit("geometry")     >> '=' >> qi::bool_[boost::bind(&HandlerT::setGeometryFlag, handler, ::_1)];
         cmp         = (-qi::lit('&')) >> qi::lit("compression")  >> '=' >> qi::bool_[boost::bind(&HandlerT::setCompressionFlag, handler, ::_1)];
         location    = (-qi::lit('&')) >> qi::lit("loc")          >> '=' >> (qi::double_ >> qi::lit(',') >> qi::double_)[boost::bind(&HandlerT::addCoordinate, handler, ::_1)];
         hint        = (-qi::lit('&')) >> qi::lit("hint")         >> '=' >> stringwithDot[boost::bind(&HandlerT::addHint, handler, ::_1)];
+        u           = (-qi::lit('&')) >> qi::lit("u")            >> '=' >> qi::bool_[boost::bind(&HandlerT::setUTurn, handler, ::_1)];
+        uturns      = (-qi::lit('&')) >> qi::lit("uturns")       >> '=' >> qi::bool_[boost::bind(&HandlerT::setAllUTurns, handler, ::_1)];
         language    = (-qi::lit('&')) >> qi::lit("hl")           >> '=' >> string[boost::bind(&HandlerT::setLanguage, handler, ::_1)];
         alt_route   = (-qi::lit('&')) >> qi::lit("alt")          >> '=' >> qi::bool_[boost::bind(&HandlerT::setAlternateRouteFlag, handler, ::_1)];
         old_API     = (-qi::lit('&')) >> qi::lit("geomformat")   >> '=' >> string[boost::bind(&HandlerT::setDeprecatedAPIFlag, handler, ::_1)];
+        num_results = (-qi::lit('&')) >> qi::lit("num_results")  >> '=' >> qi::short_[boost::bind(&HandlerT::setNumberOfResults, handler, ::_1)];
 
         string            = +(qi::char_("a-zA-Z"));
         stringwithDot     = +(qi::char_("a-zA-Z0-9_.-"));
@@ -63,8 +65,8 @@ struct APIGrammar : qi::grammar<Iterator>
 
     qi::rule<Iterator> api_call, query;
     qi::rule<Iterator, std::string()> service, zoom, output, string, jsonp, checksum, location, hint,
-                                      stringwithDot, stringwithPercent, language, instruction, elevation,
-                                      geometry, cmp, alt_route, old_API;
+                                      stringwithDot, stringwithPercent, language, instruction, geometry,
+                                      cmp, alt_route, u, uturns, old_API, num_results;
 
     HandlerT * handler;
 };

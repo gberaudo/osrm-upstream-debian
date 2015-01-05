@@ -31,7 +31,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "../DataStructures/Restriction.h"
 #include "../DataStructures/ImportNode.h"
-#include "../Util/SimpleLogger.h"
+#include "../Util/simple_logger.hpp"
 
 #include <osrm/Coordinate.h>
 
@@ -46,18 +46,13 @@ ExtractorCallbacks::ExtractorCallbacks(ExtractionContainers &extraction_containe
 }
 
 /** warning: caller needs to take care of synchronization! */
-void ExtractorCallbacks::ProcessNode(const ImportNode &n, const bool use_elevation)
+void ExtractorCallbacks::ProcessNode(const ExternalMemoryNode &n)
 {
     if (n.lat <= 85 * COORDINATE_PRECISION && n.lat >= -85 * COORDINATE_PRECISION)
     {
         external_memory.all_nodes_list.push_back(n);
-        if (use_elevation && n.keyVals.Holds("ele")) {
-            int elevation = static_cast<int>(ELEVATION_PRECISION * std::stod(n.keyVals.Find("ele")));
-            external_memory.all_nodes_list.back().setEle(elevation);
-        }
     }
 }
-
 
 bool ExtractorCallbacks::ProcessRestriction(const InputRestrictionContainer &restriction)
 {
@@ -68,7 +63,11 @@ bool ExtractorCallbacks::ProcessRestriction(const InputRestrictionContainer &res
 /** warning: caller needs to take care of synchronization! */
 void ExtractorCallbacks::ProcessWay(ExtractionWay &parsed_way)
 {
-    if ((0 >= parsed_way.speed) && (0 >= parsed_way.duration))
+    if (((0 >= parsed_way.forward_speed) ||
+            (TRAVEL_MODE_INACCESSIBLE == parsed_way.forward_travel_mode)) &&
+        ((0 >= parsed_way.backward_speed) ||
+            (TRAVEL_MODE_INACCESSIBLE == parsed_way.backward_travel_mode)) &&
+        (0 >= parsed_way.duration))
     { // Only true if the way is specified by the speed profile
         return;
     }
@@ -89,10 +88,11 @@ void ExtractorCallbacks::ProcessWay(ExtractionWay &parsed_way)
     {
         // TODO: iterate all way segments and set duration corresponding to the length of each
         // segment
-        parsed_way.speed = parsed_way.duration / (parsed_way.path.size() - 1);
+        parsed_way.forward_speed = parsed_way.duration / (parsed_way.path.size() - 1);
+        parsed_way.backward_speed = parsed_way.duration / (parsed_way.path.size() - 1);
     }
 
-    if (std::numeric_limits<double>::epsilon() >= std::abs(-1. - parsed_way.speed))
+    if (std::numeric_limits<double>::epsilon() >= std::abs(-1. - parsed_way.forward_speed))
     {
         SimpleLogger().Write(logDEBUG) << "found way with bogus speed, id: " << parsed_way.id;
         return;
@@ -111,29 +111,34 @@ void ExtractorCallbacks::ProcessWay(ExtractionWay &parsed_way)
         parsed_way.nameID = string_map_iterator->second;
     }
 
-    if (ExtractionWay::opposite == parsed_way.direction)
+    if (TRAVEL_MODE_INACCESSIBLE == parsed_way.forward_travel_mode)
     {
         std::reverse(parsed_way.path.begin(), parsed_way.path.end());
-        parsed_way.direction = ExtractionWay::oneway;
+        parsed_way.forward_travel_mode = parsed_way.backward_travel_mode;
+        parsed_way.backward_travel_mode = TRAVEL_MODE_INACCESSIBLE;
     }
 
     const bool split_edge =
-        (parsed_way.backward_speed > 0) && (parsed_way.speed != parsed_way.backward_speed);
+      (parsed_way.forward_speed>0) && (TRAVEL_MODE_INACCESSIBLE != parsed_way.forward_travel_mode) &&
+      (parsed_way.backward_speed>0) && (TRAVEL_MODE_INACCESSIBLE != parsed_way.backward_travel_mode) &&
+      ((parsed_way.forward_speed != parsed_way.backward_speed) ||
+      (parsed_way.forward_travel_mode != parsed_way.backward_travel_mode));
 
+    BOOST_ASSERT(parsed_way.forward_travel_mode>0);
     for (unsigned n = 0; n < (parsed_way.path.size() - 1); ++n)
     {
         external_memory.all_edges_list.push_back(InternalExtractorEdge(
             parsed_way.path[n],
             parsed_way.path[n + 1],
-            parsed_way.type,
-            (split_edge ? ExtractionWay::oneway : parsed_way.direction),
-            parsed_way.speed,
+            ((split_edge || TRAVEL_MODE_INACCESSIBLE == parsed_way.backward_travel_mode) ? ExtractionWay::oneway
+                                                                                 : ExtractionWay::bidirectional),
+            parsed_way.forward_speed,
             parsed_way.nameID,
             parsed_way.roundabout,
             parsed_way.ignoreInGrid,
             (0 < parsed_way.duration),
             parsed_way.isAccessRestricted,
-            false,
+            parsed_way.forward_travel_mode,
             split_edge));
         external_memory.used_node_id_list.push_back(parsed_way.path[n]);
     }
@@ -149,13 +154,14 @@ void ExtractorCallbacks::ProcessWay(ExtractionWay &parsed_way)
 
     if (split_edge)
     { // Only true if the way should be split
+        BOOST_ASSERT(parsed_way.backward_travel_mode>0);
         std::reverse(parsed_way.path.begin(), parsed_way.path.end());
+
         for (std::vector<NodeID>::size_type n = 0; n < parsed_way.path.size() - 1; ++n)
         {
             external_memory.all_edges_list.push_back(
                 InternalExtractorEdge(parsed_way.path[n],
                                       parsed_way.path[n + 1],
-                                      parsed_way.type,
                                       ExtractionWay::oneway,
                                       parsed_way.backward_speed,
                                       parsed_way.nameID,
@@ -163,7 +169,7 @@ void ExtractorCallbacks::ProcessWay(ExtractionWay &parsed_way)
                                       parsed_way.ignoreInGrid,
                                       (0 < parsed_way.duration),
                                       parsed_way.isAccessRestricted,
-                                      (ExtractionWay::oneway == parsed_way.direction),
+                                      parsed_way.backward_travel_mode,
                                       split_edge));
         }
         external_memory.way_start_end_id_list.push_back(

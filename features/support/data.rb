@@ -1,6 +1,7 @@
 require 'OSM/objects'       #osmlib gem
 require 'OSM/Database'
 require 'builder'
+require 'fileutils'
 
 class Location
   attr_accessor :lon,:lat
@@ -11,17 +12,9 @@ class Location
   end
 end
 
-def set_elevation_data_enabled enabled
-  raise '*** Elevation data enabled must either be "on" or "off"' unless ['onf','off'].include? enabled.to_s
-  @elevation_data_enabled = enabled.to_s == 'on'
-end
-
-def elevation_data_enabled
-  return @elevation_data_enabled || true
-end
 
 def set_input_format format
-  raise '*** Input format must either be "osm" or "pbf"' unless ['pbf','osm'].include? format.to_s
+  raise '*** Input format must be eiter "osm" or "pbf"' unless ['pbf','osm'].include? format.to_s
   @input_format = format.to_s
 end
 
@@ -30,7 +23,7 @@ def input_format
 end
 
 def sanitized_scenario_title
-  @sanitized_scenario_title ||= @scenario_title.gsub /[^0-9A-Za-z.\-]/, '_'
+  @sanitized_scenario_title ||= @scenario_title.to_s.gsub /[^0-9A-Za-z.\-]/, '_'
 end
 
 def set_grid_size meters
@@ -42,19 +35,6 @@ end
 
 def set_origin origin
   @origin = origin
-end
-
-def set_query_parameter name,value
-   raise '*** Query parameter name must either be "compression" or "elevation"' unless ['compression','elevation'].include? name.to_s
-   raise '*** Query parameter value must either be "on" or "off"' unless ['on','off'].include? value.to_s
-   if not @query_parameter
-      @query_parameter = Hash.new
-   end
-   @query_parameter[name.to_s] = value.to_s == 'on'
-end
-
-def query_parameter
-   @query_parameter || {}
 end
 
 def build_ways_from_table table
@@ -176,7 +156,10 @@ def reset_data
   end
   reset_profile
   reset_osm
-  @fingerprint = nil
+  @fingerprint_osm = nil
+  @fingerprint_extract = nil
+  @fingerprint_prepare = nil
+  @fingerprint_route = nil
 end
 
 def make_osm_id
@@ -226,20 +209,30 @@ def osm_str
   @osm_str
 end
 
+def osm_file
+  @osm_file ||= "#{DATA_FOLDER}/#{fingerprint_osm}"
+end
+
+def extracted_file
+  @extracted_file ||= "#{osm_file}_#{fingerprint_extract}"
+end
+
+def prepared_file
+  @prepared_file ||= "#{osm_file}_#{fingerprint_extract}_#{fingerprint_prepare}"
+end
+
 def write_osm
-  #write .oms file if needed
   Dir.mkdir DATA_FOLDER unless File.exist? DATA_FOLDER
-  @osm_file = "#{DATA_FOLDER}/#{sanitized_scenario_title}_#{fingerprint}"
-  unless File.exist?("#{@osm_file}.osm")
-    File.open( "#{@osm_file}.osm", 'w') {|f| f.write(osm_str) }
+  unless File.exist?("#{osm_file}.osm")
+    File.open( "#{osm_file}.osm", 'w') {|f| f.write(osm_str) }
   end
 end
 
 def convert_osm_to_pbf
-  unless File.exist?("#{@osm_file}.osm.pbf")
+  unless File.exist?("#{osm_file}.osm.pbf")
     log_preprocess_info
-    log "== Converting #{@osm_file}.osm to protobuffer format...", :preprocess
-    unless system "osmosis --read-xml #{@osm_file}.osm --write-pbf #{@osm_file}.osm.pbf omitmetadata=true >>#{PREPROCESS_LOG_FILE} 2>&1"
+    log "== Converting #{osm_file}.osm to protobuffer format...", :preprocess
+    unless system "osmosis --read-xml #{osm_file}.osm --write-pbf #{osm_file}.osm.pbf omitmetadata=true >>#{PREPROCESS_LOG_FILE} 2>&1"
       raise OsmosisError.new $?, "osmosis exited with code #{$?.exitstatus}"
     end
     log '', :preprocess
@@ -247,22 +240,27 @@ def convert_osm_to_pbf
 end
 
 def extracted?
-  File.exist?("#{@osm_file}.osrm") &&
-  File.exist?("#{@osm_file}.osrm.names") &&
-  File.exist?("#{@osm_file}.osrm.restrictions")
+  Dir.chdir TEST_FOLDER do
+    File.exist?("#{extracted_file}.osrm") &&
+    File.exist?("#{extracted_file}.osrm.names") &&
+    File.exist?("#{extracted_file}.osrm.restrictions")
+  end
 end
 
 def prepared?
-  File.exist?("#{@osm_file}.osrm.hsgr")
+  Dir.chdir TEST_FOLDER do
+    File.exist?("#{prepared_file}.osrm.hsgr")
+  end
 end
 
 def write_timestamp
-  File.open( "#{@osm_file}.osrm.timestamp", 'w') {|f| f.write(OSM_TIMESTAMP) }
+  File.open( "#{prepared_file}.osrm.timestamp", 'w') {|f| f.write(OSM_TIMESTAMP) }
 end
 
 def pbf?
   input_format=='pbf'
 end
+
 def write_input_data
   Dir.chdir TEST_FOLDER do
     write_osm
@@ -272,26 +270,44 @@ def write_input_data
 end
 
 def extract_data
-  use_ele = elevation_data_enabled
   Dir.chdir TEST_FOLDER do
     log_preprocess_info
-    log "== Extracting #{@osm_file}.osm#{' with elevation' if use_ele}...", :preprocess
-    unless system "#{BIN_PATH}/osrm-extract #{'-e 1' if use_ele} #{@osm_file}.osm#{'.pbf' if pbf?} --profile #{PROFILES_PATH}/#{@profile}.lua >>#{PREPROCESS_LOG_FILE} 2>&1"
+    log "== Extracting #{osm_file}.osm...", :preprocess
+    unless system "#{BIN_PATH}/osrm-extract #{osm_file}.osm#{'.pbf' if pbf?} --profile #{PROFILES_PATH}/#{@profile}.lua >>#{PREPROCESS_LOG_FILE} 2>&1"
       log "*** Exited with code #{$?.exitstatus}.", :preprocess
       raise ExtractError.new $?.exitstatus, "osrm-extract exited with code #{$?.exitstatus}."
     end
-    log '', :preprocess
+    begin
+      ["osrm","osrm.names","osrm.restrictions"].each do |file|
+        File.rename "#{osm_file}.#{file}", "#{extracted_file}.#{file}"
+      end
+    rescue Exception => e
+      raise FileError.new nil, "failed to rename data file after extracting."
+    end
   end
 end
 
 def prepare_data
-  use_ele = elevation_data_enabled
   Dir.chdir TEST_FOLDER do
     log_preprocess_info
-    log "== Preparing #{@osm_file}.osm#{' with elevation' if use_ele}...", :preprocess
-    unless system "#{BIN_PATH}/osrm-prepare #{'-e 1' if use_ele} #{@osm_file}.osrm  --profile #{PROFILES_PATH}/#{@profile}.lua 1>>#{PREPROCESS_LOG_FILE} 2>&1"
+    log "== Preparing #{extracted_file}.osm...", :preprocess
+    unless system "#{BIN_PATH}/osrm-prepare #{extracted_file}.osrm  --profile #{PROFILES_PATH}/#{@profile}.lua >>#{PREPROCESS_LOG_FILE} 2>&1"
       log "*** Exited with code #{$?.exitstatus}.", :preprocess
       raise PrepareError.new $?.exitstatus, "osrm-prepare exited with code #{$?.exitstatus}."
+    end
+    begin
+      ["osrm.hsgr","osrm.fileIndex","osrm.geometry","osrm.nodes","osrm.ramIndex"].each do |file|
+        File.rename "#{extracted_file}.#{file}", "#{prepared_file}.#{file}"
+      end
+    rescue Exception => e
+      raise FileError.new nil, "failed to rename data file after preparing."
+    end
+    begin
+      ["osrm.names","osrm.edges","osrm.restrictions"].each do |file|
+        FileUtils.cp "#{extracted_file}.#{file}", "#{prepared_file}.#{file}"
+      end
+    rescue Exception => e
+      raise FileError.new nil, "failed to copy data file after preparing."
     end
     log '', :preprocess
   end

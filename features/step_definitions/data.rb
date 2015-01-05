@@ -1,15 +1,3 @@
-Given /^compression is (.*?)$/ do |compression|
-  set_query_parameter('compression', compression)
-end
-
-Given /^elevation data is (.*?)$/ do |enabled|
-  set_elevation_data_enabled(enabled)
-end
-
-Given /^elevation is (.*?)$/ do |elevation|
-  set_query_parameter('elevation', elevation)
-end
-
 Given /^the profile "([^"]*)"$/ do |profile|
   set_profile profile
 end
@@ -169,4 +157,20 @@ Given /^the data has been prepared$/ do
   rescue OSRMError => e
     @process_error = e
   end
+end
+
+Given /^osrm\-routed is stopped$/ do
+  begin
+    OSRMLoader.shutdown
+  rescue OSRMError => e
+    @process_error = e
+  end
+end
+
+Given /^data is loaded directly/ do
+  @load_method = 'directly'
+end
+
+Given /^data is loaded with datastore$/ do
+  @load_method = 'datastore'
 end

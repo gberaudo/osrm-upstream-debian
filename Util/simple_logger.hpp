@@ -25,47 +25,50 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef CONTAINERUTILS_H_
-#define CONTAINERUTILS_H_
+#ifndef SIMPLE_LOGGER_HPP
+#define SIMPLE_LOGGER_HPP
 
-#include <algorithm>
-#include <vector>
+#include <atomic>
+#include <mutex>
+#include <sstream>
 
-template <typename T> inline void sort_unique_resize(std::vector<T> &vector)
+enum LogLevel
 {
-    std::sort(vector.begin(), vector.end());
-    const auto number_of_unique_elements = std::unique(vector.begin(), vector.end()) - vector.begin();
-    vector.resize(number_of_unique_elements);
-}
+    logINFO,
+    logWARNING,
+    logDEBUG
+};
 
-template <typename T> inline void sort_unique_resize_shrink_vector(std::vector<T> &vector)
+class LogPolicy
 {
-    sort_unique_resize(vector);
-    std::vector<T>().swap(vector);
-}
+  public:
+    void Unmute();
 
-template <typename T> inline void remove_consecutive_duplicates_from_vector(std::vector<T> &vector)
+    void Mute();
+
+    bool IsMute() const;
+
+    static LogPolicy &GetInstance();
+
+    LogPolicy(const LogPolicy &) = delete;
+
+  private:
+    LogPolicy() : m_is_mute(true) {}
+    std::atomic<bool> m_is_mute;
+};
+
+class SimpleLogger
 {
-    const auto number_of_unique_elements = std::unique(vector.begin(), vector.end()) - vector.begin();
-    vector.resize(number_of_unique_elements);
-}
+  public:
+    SimpleLogger();
 
-template <typename FwdIter, typename Func>
-Func for_each_pair(FwdIter iter_begin, FwdIter iter_end, Func func)
-{
-    if (iter_begin == iter_end)
-    {
-        return func;
-    }
+    virtual ~SimpleLogger();
+    std::mutex &get_mutex();
+    std::ostringstream &Write(LogLevel l = logINFO);
 
-    FwdIter iter_next = iter_begin;
-    ++iter_next;
+  private:
+    LogLevel level;
+    std::ostringstream os;
+};
 
-    for (; iter_next != iter_end; ++iter_begin, ++iter_next)
-    {
-        func(*iter_begin, *iter_next);
-    }
-    return func;
-}
-
-#endif /* CONTAINERUTILS_H_ */
+#endif /* SIMPLE_LOGGER_HPP */

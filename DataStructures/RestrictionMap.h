@@ -25,8 +25,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef __RESTRICTION_MAP_H__
-#define __RESTRICTION_MAP_H__
+#ifndef RESTRICTION_MAP_H_
+#define RESTRICTION_MAP_H_
 
 #include <memory>
 
@@ -39,8 +39,59 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <unordered_map>
 #include <unordered_set>
 
-// Efficent look up if an edge is the start + via node of a TurnRestriction
-// EdgeBasedEdgeFactory decides by it if edges are inserted or geometry is compressed
+struct RestrictionSource
+{
+    NodeID start_node;
+    NodeID via_node;
+
+    RestrictionSource(NodeID start, NodeID via) : start_node(start), via_node(via)
+    {
+    }
+
+    friend inline bool operator==(const RestrictionSource &lhs, const RestrictionSource &rhs)
+    {
+        return (lhs.start_node == rhs.start_node && lhs.via_node == rhs.via_node);
+    }
+};
+
+struct RestrictionTarget
+{
+    NodeID target_node;
+    bool is_only;
+
+    explicit RestrictionTarget(NodeID target, bool only) : target_node(target), is_only(only)
+    {
+    }
+
+    friend inline bool operator==(const RestrictionTarget &lhs, const RestrictionTarget &rhs)
+    {
+        return (lhs.target_node == rhs.target_node && lhs.is_only == rhs.is_only);
+    }
+};
+
+namespace std
+{
+template <> struct hash<RestrictionSource>
+{
+    size_t operator()(const RestrictionSource &r_source) const
+    {
+        return hash_val(r_source.start_node, r_source.via_node);
+    }
+};
+
+template <> struct hash<RestrictionTarget>
+{
+    size_t operator()(const RestrictionTarget &r_target) const
+    {
+        return hash_val(r_target.target_node, r_target.is_only);
+    }
+};
+}
+
+/**
+    \brief Efficent look up if an edge is the start + via node of a TurnRestriction
+    EdgeBasedEdgeFactory decides by it if edges are inserted or geometry is compressed
+*/
 class RestrictionMap
 {
   public:
@@ -52,16 +103,17 @@ class RestrictionMap
     NodeID CheckForEmanatingIsOnlyTurn(const NodeID u, const NodeID v) const;
     bool CheckIfTurnIsRestricted(const NodeID u, const NodeID v, const NodeID w) const;
     bool IsViaNode(const NodeID node) const;
-    unsigned size() { return m_count; }
+    std::size_t size()
+    {
+        return m_count;
+    }
 
   private:
     bool IsSourceNode(const NodeID node) const;
-    typedef std::pair<NodeID, NodeID> RestrictionSource;
-    typedef std::pair<NodeID, bool> RestrictionTarget;
-    typedef std::vector<RestrictionTarget> EmanatingRestrictionsVector;
-    typedef NodeBasedDynamicGraph::EdgeData EdgeData;
+    using EmanatingRestrictionsVector = std::vector<RestrictionTarget>;
+    using EdgeData = NodeBasedDynamicGraph::EdgeData;
 
-    unsigned m_count;
+    std::size_t m_count;
     std::shared_ptr<NodeBasedDynamicGraph> m_graph;
     //! index -> list of (target, isOnly)
     std::vector<EmanatingRestrictionsVector> m_restriction_bucket_list;
@@ -71,4 +123,4 @@ class RestrictionMap
     std::unordered_set<NodeID> m_no_turn_via_node_set;
 };
 
-#endif
+#endif //RESTRICTION_MAP_H_

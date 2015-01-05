@@ -36,18 +36,20 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <limits>
 
-struct NodeInfo : public Coordinate
+struct NodeInfo
 {
-    typedef NodeID key_type; // type of NodeID
-    typedef int value_type; // type of lat,lons
+    using key_type = NodeID; // type of NodeID
+    using value_type = int; // type of lat,lons
 
-    explicit NodeInfo(int lat, int lon, NodeID node_id) : Coordinate(lat, lon, MAX), node_id(node_id) {}
+    explicit NodeInfo(int lat, int lon, NodeID node_id) : lat(lat), lon(lon), node_id(node_id) {}
     NodeInfo()
-        : Coordinate(MAX, MAX, MAX),
-        node_id(std::numeric_limits<unsigned>::max())
+        : lat(std::numeric_limits<int>::max()), lon(std::numeric_limits<int>::max()),
+          node_id(std::numeric_limits<unsigned>::max())
     {
     }
 
+    int lat;
+    int lon;
     NodeID node_id;
 
     static NodeInfo min_value()
@@ -68,8 +70,6 @@ struct NodeInfo : public Coordinate
     {
         switch (n)
         {
-        case 2:
-            return getEle();
         case 1:
             return lat;
         case 0:

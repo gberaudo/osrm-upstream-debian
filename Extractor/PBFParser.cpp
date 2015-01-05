@@ -36,7 +36,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../DataStructures/Restriction.h"
 #include "../Util/MachineInfo.h"
 #include "../Util/OSRMException.h"
-#include "../Util/SimpleLogger.h"
+#include "../Util/simple_logger.hpp"
 #include "../typedefs.h"
 
 #include <boost/assert.hpp>
@@ -49,15 +49,15 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <zlib.h>
 
 #include <functional>
+#include <iostream>
 #include <limits>
 #include <thread>
 
 PBFParser::PBFParser(const char *fileName,
                      ExtractorCallbacks *extractor_callbacks,
                      ScriptingEnvironment &scripting_environment,
-                     const bool use_elevation,
                      unsigned num_threads)
-    : BaseParser(extractor_callbacks, scripting_environment, use_elevation)
+    : BaseParser(extractor_callbacks, scripting_environment)
 {
     if (0 == num_threads)
     {
@@ -288,7 +288,7 @@ inline void PBFParser::parseDenseNode(ParserThreadData *thread_data)
 
     for (const ImportNode &import_node : extracted_nodes_vector)
     {
-        extractor_callbacks->ProcessNode(import_node, use_elevation);
+        extractor_callbacks->ProcessNode(import_node);
     }
 }
 

@@ -40,16 +40,20 @@ struct RouteParameters
     RouteParameters();
 
     void setZoomLevel(const short level);
+    
+    void setNumberOfResults(const short number);
 
     void setAlternateRouteFlag(const bool flag);
+
+    void setUTurn(const bool flag);
+
+    void setAllUTurns(const bool flag);
 
     void setDeprecatedAPIFlag(const std::string &);
 
     void setChecksum(const unsigned check_sum);
 
     void setInstructionFlag(const bool flag);
-
-    void setElevationFlag(const bool ele);
 
     void setService(const std::string &service);
 
@@ -69,19 +73,20 @@ struct RouteParameters
 
     short zoom_level;
     bool print_instructions;
-    bool print_elevation;
     bool alternate_route;
     bool geometry;
     bool compression;
     bool deprecatedAPI;
+    bool uturn_default;
     unsigned check_sum;
+    short num_results;
     std::string service;
     std::string output_format;
     std::string jsonp_parameter;
     std::string language;
     std::vector<std::string> hints;
+    std::vector<bool> uturns;
     std::vector<FixedPointCoordinate> coordinates;
 };
-
 
 #endif // ROUTE_PARAMETERS_H

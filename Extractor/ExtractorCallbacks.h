@@ -34,7 +34,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 struct ExternalMemoryNode;
-struct ImportNode;
 class ExtractionContainers;
 struct ExtractionWay;
 struct InputRestrictionContainer;
@@ -52,7 +51,7 @@ class ExtractorCallbacks
                                 std::unordered_map<std::string, NodeID> &string_map);
 
     // warning: caller needs to take care of synchronization!
-    void ProcessNode(const ImportNode &node, const bool use_elevation);
+    void ProcessNode(const ExternalMemoryNode &node);
 
     // warning: caller needs to take care of synchronization!
     bool ProcessRestriction(const InputRestrictionContainer &restriction);

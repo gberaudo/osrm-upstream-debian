@@ -4,7 +4,7 @@ def test_routability_row i
     a = Location.new @origin[0]+(1+WAY_SPACING*i)*@zoom, @origin[1]
     b = Location.new @origin[0]+(3+WAY_SPACING*i)*@zoom, @origin[1]
     r = {}
-    r[:response] = request_route direction=='forw' ? [a,b] : [b,a]
+    r[:response] = request_route (direction=='forw' ? [a,b] : [b,a]), @query_params
     r[:query] = @query
     r[:json] = JSON.parse(r[:response].body)
 
@@ -44,7 +44,7 @@ Then /^routability should be$/ do |table|
   if table.headers&["forw","backw","bothw"] == []
     raise "*** routability tabel must contain either 'forw', 'backw' or 'bothw' column"
   end
-  OSRMBackgroundLauncher.new("#{@osm_file}.osrm") do
+  OSRMLoader.load(self,"#{prepared_file}.osrm") do
     table.hashes.each_with_index do |row,i|
       output_row = row.dup
       attempts = []
@@ -54,11 +54,11 @@ Then /^routability should be$/ do |table|
         want = shortcuts_hash[row[direction]] || row[direction]     #expand shortcuts
         case want
         when '', 'x'
-          output_row[direction] = result[direction][:status].to_s
+          output_row[direction] = result[direction][:status] ? result[direction][:status].to_s : ''
         when /^\d+s/
-          output_row[direction] = "#{result[direction][:time]}s"
+          output_row[direction] = result[direction][:time] ? "#{result[direction][:time]}s" : ''
         when /^\d+ km\/h/
-          output_row[direction] = "#{result[direction][:speed]} km/h"
+          output_row[direction] = result[direction][:speed] ? "#{result[direction][:speed]} km/h" : ''
         else
           raise "*** Unknown expectation format: #{want}"
         end
