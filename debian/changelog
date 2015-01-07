@@ -1,6 +1,14 @@
+osrm (4.5.0-1) wheezy; urgency=low
+
+  * Imported Upstream version 4.5.0
+
+ -- Guillaume Beraudo <guillaume.beraudo@camptocamp.com>  Wed, 07 Jan 2015 10:12:29 +0100
+
 osrm (4.4.0-1) wheezy; urgency=low
 
   * Imported Upstream version 4.4.0
+  * Add boost unit test
+  * The 'dont strip' hack is actually necessary...
 
  -- Guillaume Beraudo <guillaume.beraudo@camptocamp.com>  Mon, 05 Jan 2015 16:47:24 +0100
 
